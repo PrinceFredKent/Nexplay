@@ -1,0 +1,54 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Exclusive Super Admin constraint for princefredkent@gmail.com
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email != null && request.auth.token.email.lower() == 'princefredkent@gmail.com';
+    }
+
+    // User profile and personal subcollections
+    match /users/{userId} {
+      allow read, create, update, delete: if isOwner(userId) || isAdmin();
+
+      match /watchlist/{mediaId} {
+        allow read, create, update, delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /favorites/{mediaId} {
+        allow read, create, update, delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /history/{mediaId} {
+        allow read, create, update, delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Global Movie & Series Catalog
+    match /catalog/{mediaId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // System Settings & Admin Logs
+    match /system/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Fallback catch-all: Admin has complete master access
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

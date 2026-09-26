@@ -1,0 +1,6 @@
+{
+  "name": "Nexplay",
+  "description": "Ultra-sleek frosted glass streaming hub for movies and series with multi-source playback, instant trailers, watchlist sync, and offline downloads.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

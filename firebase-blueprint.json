@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile in Nexplay",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "isKids": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "displayName", "email"]
+    },
+    "CatalogItem": {
+      "title": "CatalogItem",
+      "description": "Global Movie/TV show item in Nexplay catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "title": { "type": "string", "maxLength": 200 },
+        "type": { "type": "string", "enum": ["movie", "tv"] },
+        "overview": { "type": "string" },
+        "posterPath": { "type": "string" },
+        "backdropPath": { "type": "string" },
+        "releaseDate": { "type": "string" },
+        "voteAverage": { "type": "number" },
+        "isFeatured": { "type": "boolean" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "title", "type"]
+    },
+    "WatchlistItem": {
+      "title": "WatchlistItem",
+      "description": "Movie or show added to user watchlist",
+      "type": "object",
+      "properties": {
+        "mediaId": { "type": "number" },
+        "title": { "type": "string", "maxLength": 200 },
+        "mediaType": { "type": "string", "enum": ["movie", "tv"] },
+        "posterPath": { "type": "string", "maxLength": 500 },
+        "addedAt": { "type": "string" }
+      },
+      "required": ["mediaId", "mediaType"]
+    },
+    "FavoriteItem": {
+      "title": "FavoriteItem",
+      "description": "Movie or show added to user favorites",
+      "type": "object",
+      "properties": {
+        "mediaId": { "type": "number" },
+        "title": { "type": "string", "maxLength": 200 },
+        "mediaType": { "type": "string", "enum": ["movie", "tv"] },
+        "posterPath": { "type": "string", "maxLength": 500 },
+        "addedAt": { "type": "string" }
+      },
+      "required": ["mediaId", "mediaType"]
+    },
+    "WatchHistoryItem": {
+      "title": "WatchHistoryItem",
+      "description": "User watch history item with progress",
+      "type": "object",
+      "properties": {
+        "mediaId": { "type": "number" },
+        "title": { "type": "string", "maxLength": 200 },
+        "mediaType": { "type": "string", "enum": ["movie", "tv"] },
+        "posterPath": { "type": "string", "maxLength": 500 },
+        "season": { "type": "number" },
+        "episode": { "type": "number" },
+        "progressSeconds": { "type": "number" },
+        "durationSeconds": { "type": "number" },
+        "lastWatchedAt": { "type": "string" }
+      },
+      "required": ["mediaId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document"
+    },
+    "/users/{userId}/watchlist/{mediaId}": {
+      "schema": "WatchlistItem",
+      "description": "Subcollection for user watchlist items"
+    },
+    "/users/{userId}/favorites/{mediaId}": {
+      "schema": "FavoriteItem",
+      "description": "Subcollection for user favorite items"
+    },
+    "/users/{userId}/history/{mediaId}": {
+      "schema": "WatchHistoryItem",
+      "description": "Subcollection for user watch history items"
+    },
+    "/catalog/{mediaId}": {
+      "schema": "CatalogItem",
+      "description": "Global movie catalog collection managed by Super Admin"
+    }
+  }
+}
