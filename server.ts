@@ -161,6 +161,26 @@ function formatTmdbMedia(item: any): any {
     profilePath: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=185&auto=format&fit=crop&q=80'
   }));
 
+  const seasons = isTv && item.seasons && Array.isArray(item.seasons) && item.seasons.length > 0
+    ? item.seasons
+        .filter((s: any) => s.season_number > 0)
+        .map((s: any) => ({
+          seasonNumber: s.season_number,
+          name: s.name || `Season ${s.season_number}`,
+          episodeCount: s.episode_count || 10,
+          overview: s.overview || '',
+          posterPath: s.poster_path ? `https://image.tmdb.org/t/p/w780${s.poster_path}` : '',
+          episodes: []
+        }))
+    : (isTv ? Array.from({ length: item.number_of_seasons || 1 }, (_, i) => ({
+        seasonNumber: i + 1,
+        name: `Season ${i + 1}`,
+        episodeCount: Math.max(1, Math.ceil((item.number_of_episodes || 10) / (item.number_of_seasons || 1))),
+        overview: '',
+        posterPath: '',
+        episodes: []
+      })) : undefined);
+
   return {
     id: tmdbId,
     tmdbId: tmdbId,
@@ -180,8 +200,9 @@ function formatTmdbMedia(item: any): any {
     popularity: item.popularity || 150,
     genres: (item.genres || [{ name: isTv ? 'Drama' : 'Action' }]).map((g: any) => typeof g === 'string' ? g : g.name),
     runtime: isTv ? (item.episode_run_time?.[0] || 45) : (item.runtime || 120),
-    seasonsCount: isTv ? (item.number_of_seasons || 1) : undefined,
+    seasonsCount: isTv ? (item.number_of_seasons || (seasons ? seasons.length : 1)) : undefined,
     episodesCount: isTv ? (item.number_of_episodes || 10) : undefined,
+    seasons: seasons,
     director: isTv ? (item.created_by?.[0]?.name || 'Showrunner') : 'Director',
     contentRating: isTv ? 'TV-MA' : 'PG-13',
     spokenLanguages: ['English'],
@@ -411,6 +432,197 @@ app.post('/api/search-movie', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[API Error in /api/search-movie]', err);
     return res.status(500).json({ error: err.message || 'Failed to search and auto-fill movie details' });
+  }
+});
+
+// Backend Route: TV Series Full Details & Seasons Overview
+app.post('/api/tv-details', async (req: Request, res: Response) => {
+  try {
+    const { tmdbId, title } = req.body;
+    if (!tmdbId && !title) {
+      return res.status(400).json({ error: 'tmdbId or title is required' });
+    }
+
+    const tmdbKeys = [
+      '15d2fb6ef0325b30216c86d0e8d13b45',
+      '15d2ea6d0dc1d476efbca3eba2b9bbfb',
+      '3fd2be6f0c70a2a598f084dd9fb0e0b5'
+    ];
+
+    let foundData: any = null;
+
+    if (tmdbId) {
+      for (const key of tmdbKeys) {
+        try {
+          const detailRes = await fetch(
+            `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${key}&append_to_response=credits,videos`
+          );
+          if (detailRes.ok) {
+            const json = await detailRes.json();
+            json._mediaType = 'tv';
+            foundData = formatTmdbMedia(json);
+            break;
+          }
+        } catch (e) {
+          console.warn('[TMDB TV Details Warning]', e);
+        }
+      }
+    }
+
+    // Fallback: search by title
+    if (!foundData && title) {
+      const searchItems = await searchOmdb(title);
+      if (searchItems.length > 0) {
+        foundData = searchItems[0];
+      }
+    }
+
+    if (foundData) {
+      return res.json({ success: true, media: foundData });
+    }
+
+    return res.status(404).json({ error: 'TV Series not found' });
+  } catch (err: any) {
+    console.error('[API Error in /api/tv-details]', err);
+    return res.status(500).json({ error: err.message || 'Failed to fetch TV details' });
+  }
+});
+
+// Backend Route: TV Season Episodes Fetcher
+app.post('/api/tv-season', async (req: Request, res: Response) => {
+  try {
+    const { tmdbId, seasonNumber = 1, showTitle = '', episodeCount = 10, backdropPath = '' } = req.body;
+    const seasonNum = parseInt(String(seasonNumber), 10) || 1;
+    const count = parseInt(String(episodeCount), 10) || 10;
+
+    const tmdbKeys = [
+      '15d2fb6ef0325b30216c86d0e8d13b45',
+      '15d2ea6d0dc1d476efbca3eba2b9bbfb',
+      '3fd2be6f0c70a2a598f084dd9fb0e0b5'
+    ];
+
+    let episodes: any[] = [];
+    let seasonName = `Season ${seasonNum}`;
+    let seasonOverview = '';
+
+    // 1. Try TMDB Season API
+    if (tmdbId) {
+      for (const key of tmdbKeys) {
+        try {
+          const seasonRes = await fetch(
+            `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${key}`
+          );
+          if (seasonRes.ok) {
+            const json = await seasonRes.json();
+            if (json.name) seasonName = json.name;
+            if (json.overview) seasonOverview = json.overview;
+
+            if (json.episodes && Array.isArray(json.episodes) && json.episodes.length > 0) {
+              episodes = json.episodes.map((ep: any) => ({
+                id: ep.id || (Number(tmdbId) * 1000 + seasonNum * 100 + ep.episode_number),
+                episodeNumber: ep.episode_number,
+                seasonNumber: ep.season_number || seasonNum,
+                name: ep.name || `Episode ${ep.episode_number}`,
+                overview: ep.overview || `Episode ${ep.episode_number} of ${seasonName}.`,
+                stillPath: ep.still_path
+                  ? `https://image.tmdb.org/t/p/w780${ep.still_path}`
+                  : (backdropPath || 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=780&auto=format&fit=crop&q=80'),
+                runtime: ep.runtime || 45,
+                voteAverage: Math.round((ep.vote_average || 8.0) * 10) / 10,
+                airDate: ep.air_date || '2023-01-01',
+                directStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+                downloadSizeMB: (ep.runtime || 45) * 11
+              }));
+              break;
+            }
+          }
+        } catch (e) {
+          console.warn(`[TMDB Season ${seasonNum} Warning]`, e);
+        }
+      }
+    }
+
+    // 2. Fallback to Gemini AI structured generation if episodes still empty
+    if (episodes.length === 0 && ai && showTitle) {
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: `Generate a list of real canonical episodes for the TV Series "${showTitle}", Season ${seasonNum}.
+          If the show is Love, Death & Robots, Stranger Things, Arcane, etc., provide real episode titles, runtimes, and synopses.
+          Return a JSON array of episodes with schema:
+          [{ "episodeNumber": 1, "name": "...", "overview": "...", "runtime": 20, "voteAverage": 8.4 }]`,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  episodeNumber: { type: Type.INTEGER },
+                  name: { type: Type.STRING },
+                  overview: { type: Type.STRING },
+                  runtime: { type: Type.INTEGER },
+                  voteAverage: { type: Type.NUMBER }
+                },
+                required: ['episodeNumber', 'name', 'overview', 'runtime']
+              }
+            }
+          }
+        });
+
+        const parsedEpisodes = JSON.parse(response.text || '[]');
+        if (Array.isArray(parsedEpisodes) && parsedEpisodes.length > 0) {
+          episodes = parsedEpisodes.map((p: any) => ({
+            id: (Number(tmdbId || 9999) * 1000 + seasonNum * 100 + p.episodeNumber),
+            episodeNumber: p.episodeNumber,
+            seasonNumber: seasonNum,
+            name: p.name || `Episode ${p.episodeNumber}`,
+            overview: p.overview || `Experience ${showTitle} Season ${seasonNum} Episode ${p.episodeNumber} in HD.`,
+            stillPath: backdropPath || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1600&auto=format&fit=crop&q=80',
+            runtime: p.runtime || 45,
+            voteAverage: p.voteAverage || 8.2,
+            airDate: '2023-01-01',
+            directStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+            downloadSizeMB: (p.runtime || 45) * 11
+          }));
+        }
+      } catch (geminiError) {
+        console.warn('[Gemini TV Season Episode Generator Warning]', geminiError);
+      }
+    }
+
+    // 3. Guaranteed Fallback if still empty
+    if (episodes.length === 0) {
+      const generatedCount = Math.max(1, Math.min(count, 24));
+      episodes = Array.from({ length: generatedCount }, (_, idx) => {
+        const epNum = idx + 1;
+        return {
+          id: (Number(tmdbId || 9999) * 1000 + seasonNum * 100 + epNum),
+          episodeNumber: epNum,
+          seasonNumber: seasonNum,
+          name: `${showTitle ? showTitle + ' ' : ''}Episode ${epNum}`,
+          overview: `Stream Season ${seasonNum}, Episode ${epNum} in 4K Ultra HD with crystal clear surround sound.`,
+          stillPath: backdropPath || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1600&auto=format&fit=crop&q=80',
+          runtime: 45,
+          voteAverage: 8.0,
+          airDate: '2023-01-01',
+          directStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+          downloadSizeMB: 500
+        };
+      });
+    }
+
+    return res.json({
+      success: true,
+      seasonNumber: seasonNum,
+      seasonName,
+      seasonOverview,
+      episodes
+    });
+
+  } catch (err: any) {
+    console.error('[API Error in /api/tv-season]', err);
+    return res.status(500).json({ error: err.message || 'Failed to fetch season episodes' });
   }
 });
 

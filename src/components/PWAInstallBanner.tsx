@@ -18,7 +18,7 @@ export const PWAInstallBanner: React.FC = () => {
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-rose-400 shrink-0" />
               <span className="text-slate-200">
-                Install <strong>Lumina Stream</strong> for instant offline movie playback and fullscreen streaming.
+                Install <strong>Nexplay</strong> for instant movie playback and fullscreen streaming.
               </span>
             </div>
 

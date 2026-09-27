@@ -20,8 +20,13 @@ export default defineConfig(() => {
           theme_color: '#090a0f',
           background_color: '#090a0f',
           display: 'standalone',
+          orientation: 'any',
           start_url: '/',
           scope: '/',
+          lang: 'en',
+          dir: 'ltr',
+          categories: ['entertainment', 'movies', 'video'],
+          prefer_related_applications: false,
           icons: [
             {
               src: '/pwa-192x192.png',
@@ -91,7 +96,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: false,
+          enabled: true,
         },
       }),
     ],

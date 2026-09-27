@@ -5,7 +5,7 @@ import { MediaItem, WatchHistoryItem } from '../types/movie';
 interface NexplayContinueWatchingProps {
   history?: WatchHistoryItem[];
   allCatalog?: MediaItem[];
-  onPlay: (media: MediaItem, season?: number, episode?: number) => void;
+  onPlay: (media: MediaItem, season?: number, episode?: number, initialTime?: number) => void;
 }
 
 export const NexplayContinueWatching: React.FC<NexplayContinueWatchingProps> = ({
@@ -60,7 +60,7 @@ export const NexplayContinueWatching: React.FC<NexplayContinueWatchingProps> = (
           return (
             <div
               key={item.mediaId}
-              onClick={() => onPlay(matchedMedia, item.season, item.episode)}
+              onClick={() => onPlay(matchedMedia, item.season, item.episode, item.currentTime)}
               className="group flex items-center justify-between p-2 rounded-2xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 cursor-pointer transition-all"
             >
               <div className="flex items-center gap-3 min-w-0">
@@ -88,7 +88,7 @@ export const NexplayContinueWatching: React.FC<NexplayContinueWatchingProps> = (
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onPlay(matchedMedia, item.season, item.episode);
+                  onPlay(matchedMedia, item.season, item.episode, item.currentTime);
                 }}
                 className="w-7 h-7 rounded-full bg-white/10 group-hover:bg-white text-slate-300 group-hover:text-slate-950 flex items-center justify-center shrink-0 transition-all shadow-md ml-2"
                 aria-label={`Continue ${item.title}`}

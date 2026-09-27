@@ -6,14 +6,14 @@
       <stop offset="100%" stop-color="#4f46e5" />
     </linearGradient>
     <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#e11d48" stop-opacity="0.3" />
+      <stop offset="0%" stop-color="#e11d48" stop-opacity="0.35" />
       <stop offset="100%" stop-color="#090a0f" stop-opacity="0" />
     </radialGradient>
   </defs>
-  <rect width="512" height="512" rx="128" fill="#090a0f"/>
+  <rect width="512" height="512" rx="110" fill="#090a0f"/>
   <circle cx="256" cy="256" r="220" fill="url(#glow)"/>
-  <rect x="32" y="32" width="448" height="448" rx="96" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>
+  <rect x="24" y="24" width="464" height="464" rx="90" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="4"/>
   <!-- Cinematic Play & Prism Motif -->
-  <path d="M190 140 L370 256 L190 372 Z" fill="url(#luminaGrad)" filter="drop-shadow(0px 8px 24px rgba(225, 29, 72, 0.45))"/>
-  <path d="M220 180 L330 256 L220 332 Z" fill="#ffffff" fill-opacity="0.25"/>
+  <path d="M190 140 L370 256 L190 372 Z" fill="url(#luminaGrad)"/>
+  <path d="M225 185 L325 256 L225 327 Z" fill="#ffffff" fill-opacity="0.3"/>
 </svg>

@@ -46,6 +46,7 @@ export interface MediaItem {
   tmdbId: number;
   imdbId?: string;
   title: string;
+  cleanTitle?: string;
   originalTitle?: string;
   type: MediaType;
   overview: string;

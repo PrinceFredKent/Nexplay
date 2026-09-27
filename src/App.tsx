@@ -74,7 +74,7 @@ export default function App() {
   const [downloads, setDownloads] = useState<OfflineDownload[]>(() => getOfflineDownloads());
 
   // Modals state
-  const [playingMedia, setPlayingMedia] = useState<{ media: MediaItem; season?: number; episode?: number } | null>(null);
+  const [playingMedia, setPlayingMedia] = useState<{ media: MediaItem; season?: number; episode?: number; initialTime?: number } | null>(null);
   const [detailMedia, setDetailMedia] = useState<MediaItem | null>(null);
   const [optionsMedia, setOptionsMedia] = useState<MediaItem | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -214,8 +214,8 @@ export default function App() {
     setFavoriteIds(updated);
   };
 
-  const handlePlayMedia = (media: MediaItem, season?: number, episode?: number) => {
-    setPlayingMedia({ media, season, episode });
+  const handlePlayMedia = (media: MediaItem, season?: number, episode?: number, initialTime?: number) => {
+    setPlayingMedia({ media, season, episode, initialTime });
 
     // Save watch progress to history
     const historyItem: WatchHistoryItem = {
@@ -226,8 +226,8 @@ export default function App() {
       backdropPath: media.backdropPath,
       season: season || 1,
       episode: episode || 1,
-      progress: 5,
-      currentTime: 120,
+      progress: initialTime ? Math.round((initialTime / 7200) * 100) : 5,
+      currentTime: initialTime || 120,
       duration: 7200,
       lastWatchedAt: Date.now()
     };
@@ -449,6 +449,7 @@ export default function App() {
           media={playingMedia.media}
           initialSeason={playingMedia.season || 1}
           initialEpisode={playingMedia.episode || 1}
+          initialTime={playingMedia.initialTime}
           onClose={() => setPlayingMedia(null)}
           activeProfileId={currentUser?.uid || 'guest'}
         />
