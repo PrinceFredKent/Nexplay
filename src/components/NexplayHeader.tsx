@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, ChevronDown, User, Sparkles, Settings } from 'lucide-react';
+import { Search, Bell, ChevronDown, User, Sparkles, Settings, Crown } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { UserProfileData } from '../services/firebase';
 import { DEFAULT_NETFLIX_AVATAR } from '../services/netflixAvatars';
@@ -13,6 +13,7 @@ interface NexplayHeaderProps {
   userProfile: UserProfileData | null;
   onOpenProfile: () => void;
   onOpenAutoFill?: () => void;
+  onOpenAdmin?: () => void;
 }
 
 export const NexplayHeader: React.FC<NexplayHeaderProps> = ({
@@ -23,7 +24,8 @@ export const NexplayHeader: React.FC<NexplayHeaderProps> = ({
   currentUser,
   userProfile,
   onOpenProfile,
-  onOpenAutoFill
+  onOpenAutoFill,
+  onOpenAdmin
 }) => {
   const categories = ['Movies', 'TV Series', 'Animation', 'Mistery', 'More'];
 
@@ -65,6 +67,17 @@ export const NexplayHeader: React.FC<NexplayHeaderProps> = ({
             >
               <Sparkles className="w-3.5 h-3.5 fill-white" />
               <span className="hidden md:inline">Auto-Fill Movie</span>
+            </button>
+          )}
+
+          {onOpenAdmin && (
+            <button
+              onClick={onOpenAdmin}
+              className="px-3 py-2.5 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs shadow-lg shadow-amber-950/40 flex items-center gap-1.5 transition-all shrink-0 active:scale-95"
+              title="Super Admin Control Hub - Add & Manage Movies"
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+              <span className="hidden lg:inline">Admin Hub</span>
             </button>
           )}
         </div>

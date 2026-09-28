@@ -33,7 +33,7 @@ export interface Season {
 export interface StreamSource {
   id: string;
   name: string;
-  quality: '4K HDR' | '1080p FHD' | '720p HD';
+  quality: string;
   type: 'embed' | 'direct' | 'hls';
   serverName: string;
   isFast: boolean;

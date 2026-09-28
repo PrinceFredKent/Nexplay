@@ -76,6 +76,16 @@
         "lastWatchedAt": { "type": "string" }
       },
       "required": ["mediaId"]
+    },
+    "DeletedMovie": {
+      "title": "DeletedMovie",
+      "description": "Blacklist record of deleted movies so they never reappear",
+      "type": "object",
+      "properties": {
+        "mediaId": { "type": "number" },
+        "deletedAt": { "type": "string" }
+      },
+      "required": ["mediaId"]
     }
   },
   "firestore": {
@@ -98,6 +108,10 @@
     "/catalog/{mediaId}": {
       "schema": "CatalogItem",
       "description": "Global movie catalog collection managed by Super Admin"
+    },
+    "/deleted_movies/{mediaId}": {
+      "schema": "DeletedMovie",
+      "description": "Persistent record of deleted movie IDs"
     }
   }
 }

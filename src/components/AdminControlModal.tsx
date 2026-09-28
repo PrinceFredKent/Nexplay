@@ -67,7 +67,7 @@ export const AdminControlModal: React.FC<AdminControlModalProps> = ({
                   Super Admin Control Center
                 </h2>
                 <span className="text-[10px] font-mono tracking-widest text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/40 font-bold">
-                  EXCLUSIVE: princefredkent@gmail.com
+                  AUTHORIZED: {currentUserEmail || 'Super Admin'}
                 </span>
               </div>
               <p className="text-xs text-slate-400">Full platform authorization • Catalog editor • User permissions • System controls</p>
@@ -204,10 +204,10 @@ export const AdminControlModal: React.FC<AdminControlModalProps> = ({
                       <button
                         onClick={() => {
                           onRemoveCatalogItem(item.id);
-                          showToast(`Removed "${item.title}" from catalog.`);
+                          showToast(`Permanently removed "${item.title}" from catalog.`);
                         }}
                         className="p-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 transition-colors"
-                        title="Delete from catalog"
+                        title="Permanently delete from catalog"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

@@ -93,11 +93,11 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 // User Profile Types
-export const SUPER_ADMIN_EMAIL = 'princefredkent@gmail.com';
+export const SUPER_ADMIN_EMAILS = ['taxwiseplatform@gmail.com', 'princefredkent@gmail.com'];
 
 export function isSuperAdminEmail(email?: string | null): boolean {
   if (!email) return false;
-  return email.trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+  return SUPER_ADMIN_EMAILS.some(e => e.toLowerCase() === email.trim().toLowerCase());
 }
 
 export interface UserProfileData {
@@ -280,6 +280,41 @@ export async function saveFirestoreCatalogItem(media: MediaItem): Promise<void> 
 export async function deleteFirestoreCatalogItem(mediaId: number): Promise<void> {
   const docRef = doc(db, 'catalog', String(mediaId));
   const path = `catalog/${mediaId}`;
+  try {
+    await deleteDoc(docRef);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+// Deleted Movie IDs Blacklist Persistence in Firestore
+export async function getFirestoreDeletedMovieIds(): Promise<number[]> {
+  const path = 'deleted_movies';
+  try {
+    const snap = await getDocs(collection(db, 'deleted_movies'));
+    return snap.docs.map(d => Number(d.id)).filter(id => !isNaN(id));
+  } catch (err) {
+    console.warn('Could not fetch deleted movies from Firestore, using offline fallback', err);
+    return [];
+  }
+}
+
+export async function recordFirestoreDeletedMovieId(mediaId: number): Promise<void> {
+  const docRef = doc(db, 'deleted_movies', String(mediaId));
+  const path = `deleted_movies/${mediaId}`;
+  try {
+    await setDoc(docRef, {
+      mediaId,
+      deletedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+export async function restoreFirestoreDeletedMovie(mediaId: number): Promise<void> {
+  const docRef = doc(db, 'deleted_movies', String(mediaId));
+  const path = `deleted_movies/${mediaId}`;
   try {
     await deleteDoc(docRef);
   } catch (err) {

@@ -5,24 +5,29 @@ import {
   Pause, 
   RotateCcw, 
   RotateCw, 
-  Volume2, 
-  VolumeX, 
-  Maximize, 
-  Minimize, 
-  Settings, 
   Server, 
-  FastForward, 
+  SkipForward, 
   Layers, 
-  Film, 
   Check, 
   Keyboard, 
-  Sparkles,
-  ExternalLink,
-  RefreshCw,
-  Clock
+  Sparkles, 
+  RefreshCw, 
+  Clock, 
+  Tv, 
+  Maximize, 
+  Minimize, 
+  ChevronRight, 
+  Wifi, 
+  Sliders, 
+  Volume2, 
+  VolumeX, 
+  AlertCircle, 
+  Film, 
+  ExternalLink, 
+  ShieldCheck 
 } from 'lucide-react';
 import { Episode, MediaItem, Season, StreamSource } from '../types/movie';
-import { STREAM_PROVIDERS, SAMPLE_DIRECT_STREAMS } from '../services/streamProviders';
+import { STREAM_PROVIDERS } from '../services/streamProviders';
 import { saveWatchProgress, getWatchHistory } from '../services/storageService';
 import { fetchTvSeasonEpisodes } from '../services/catalogService';
 
@@ -44,16 +49,31 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   activeProfileId
 }) => {
   const [media, setMedia] = useState<MediaItem>(initialMedia);
-  // Streaming source state
-  const [selectedProvider, setSelectedProvider] = useState<StreamSource>(STREAM_PROVIDERS[0]);
   const [currentSeason, setCurrentSeason] = useState(initialSeason);
   const [currentEpisode, setCurrentEpisode] = useState(initialEpisode);
-  const [loadingDrawerEpisodes, setLoadingDrawerEpisodes] = useState(false);
-  const [playerMode, setPlayerMode] = useState<'direct' | 'embed'>('direct');
+  
+  // Default to VidLink Ultra 4K (unblocked, mobile-responsive, no referrer check)
+  const [providerIndex, setProviderIndex] = useState(0);
+  const selectedProvider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
+  
+  // Player Loading state & timeout recovery
+  const [isStreamLoading, setIsStreamLoading] = useState(true);
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [isSeasonDrawerOpen, setIsSeasonDrawerOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [loadingDrawerEpisodes, setLoadingDrawerEpisodes] = useState(false);
+  const [useNativePlayer, setUseNativePlayer] = useState(false);
+
+  // Auto-disappearing UI Controls state (disappears automatically after 3.5s)
+  const [showBottomQuickBar, setShowBottomQuickBar] = useState(true);
+  const [showPlayerHeader, setShowPlayerHeader] = useState(true);
+  const controlsTimeoutRef = useRef<any>(null);
+
+  // Direct Native Video states
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+  const [currentTime, setCurrentTime] = useState(initialTime || 0);
+  const [duration, setDuration] = useState(media.runtime ? media.runtime * 60 : 7200);
 
   // Resume state & Toast
   const [resumeToast, setResumeToast] = useState<{ time: number; visible: boolean } | null>(null);
@@ -63,6 +83,50 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState<number | null>(null);
   const [isCountdownCancelled, setIsCountdownCancelled] = useState(false);
   const countdownIntervalRef = useRef<any>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Handle stream provider URL
+  const embedUrl = selectedProvider.getUrl(
+    media.tmdbId,
+    media.type,
+    currentSeason,
+    currentEpisode,
+    media.imdbId
+  );
+
+  // Auto-hide bottom quick actions & controls after 3.5s of idle
+  const resetControlsTimer = () => {
+    setShowBottomQuickBar(true);
+    setShowPlayerHeader(true);
+
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+
+    controlsTimeoutRef.current = setTimeout(() => {
+      setShowBottomQuickBar(false);
+      setShowPlayerHeader(false);
+    }, 3500);
+  };
+
+  // Trigger controls timer on mount, server switch, or episode switch
+  useEffect(() => {
+    resetControlsTimer();
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [providerIndex, currentSeason, currentEpisode, useNativePlayer]);
+
+  // When switching servers, reset loader state
+  useEffect(() => {
+    setIsStreamLoading(true);
+    const t = setTimeout(() => {
+      setIsStreamLoading(false);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [providerIndex, currentSeason, currentEpisode, useNativePlayer]);
 
   // Load Season Episodes in Player
   const ensureSeasonEpisodesLoaded = async (seasonNum: number) => {
@@ -113,40 +177,6 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     }
   }, [currentSeason]);
 
-  // Direct video controls state (when using native HTML5 player or direct stream)
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(media.runtime ? media.runtime * 60 : 7200);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [selectedQuality, setSelectedQuality] = useState('4K Ultra HD');
-  const [selectedAudio, setSelectedAudio] = useState('English [Original]');
-  const [selectedSubtitle, setSelectedSubtitle] = useState('English [CC]');
-  const [showControls, setShowControls] = useState(true);
-  const controlsTimeoutRef = useRef<any>(null);
-
-  // Auto-hide controls timer
-  const handleMouseMove = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    controlsTimeoutRef.current = setTimeout(() => {
-      setShowControls(false);
-    }, 3500);
-  };
-
-  // Construct dynamic embed URL for currently selected provider
-  const embedUrl = selectedProvider.getUrl(
-    media.tmdbId,
-    media.type,
-    currentSeason,
-    currentEpisode,
-    media.imdbId
-  );
-
   // TV Seasons & Episodes list
   const activeSeasonData: Season | undefined = media.seasons?.find(s => s.seasonNumber === currentSeason) || media.seasons?.[0];
   const activeEpisodeData: Episode | undefined = activeSeasonData?.episodes?.find(e => e.episodeNumber === currentEpisode) || activeSeasonData?.episodes?.[0];
@@ -181,7 +211,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
       };
     }
     // Generated next fallback
-    if (currentEpisode < (activeSeasonData?.episodeCount || 10)) {
+    const currentMaxEpisodes = activeSeasonData?.episodeCount || 10;
+    if (currentEpisode < currentMaxEpisodes) {
       return {
         season: currentSeason,
         episode: currentEpisode + 1,
@@ -204,11 +235,21 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     setCurrentTime(0);
     setNextEpisodeCountdown(null);
     setIsCountdownCancelled(false);
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0;
-      videoRef.current.play().catch(() => {});
-    }
   };
+
+  // Switch between servers easily
+  const switchNextServer = (targetIdx?: number) => {
+    const nextIdx = targetIdx !== undefined ? targetIdx : (providerIndex + 1) % STREAM_PROVIDERS.length;
+    setProviderIndex(nextIdx);
+    setUseNativePlayer(STREAM_PROVIDERS[nextIdx]?.type === 'direct');
+    resetControlsTimer();
+  };
+
+  // Reset when episode changes
+  useEffect(() => {
+    setNextEpisodeCountdown(null);
+    setIsCountdownCancelled(false);
+  }, [currentSeason, currentEpisode]);
 
   // Initialize Resume from previous watch position
   useEffect(() => {
@@ -226,16 +267,13 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
         return true;
       });
 
-      if (saved && saved.currentTime && saved.currentTime > 15 && (!saved.duration || saved.currentTime < saved.duration - 45)) {
+      if (saved && saved.currentTime && saved.currentTime > 15 && (!saved.duration || saved.currentTime < saved.duration - 30)) {
         savedResumeTime = saved.currentTime;
       }
     }
 
     if (savedResumeTime && savedResumeTime > 15) {
       setCurrentTime(savedResumeTime);
-      if (videoRef.current) {
-        videoRef.current.currentTime = savedResumeTime;
-      }
       setResumeToast({ time: savedResumeTime, visible: true });
       const timer = setTimeout(() => {
         setResumeToast(prev => prev ? { ...prev, visible: false } : null);
@@ -244,24 +282,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     }
   }, [activeProfileId, currentEpisode, currentSeason, initialTime, media.id, media.type]);
 
-  // Handle Next Episode Countdown Trigger (Within last 35 seconds of episode)
-  useEffect(() => {
-    if (media.type !== 'tv' || !nextEpisode || isCountdownCancelled) {
-      if (isCountdownCancelled) setNextEpisodeCountdown(null);
-      return;
-    }
-
-    const timeRemaining = duration - currentTime;
-    const shouldTrigger = duration > 60 && timeRemaining <= 35 && timeRemaining > 0;
-
-    if (shouldTrigger && nextEpisodeCountdown === null) {
-      setNextEpisodeCountdown(10);
-    } else if (!shouldTrigger && timeRemaining > 40 && nextEpisodeCountdown !== null) {
-      setNextEpisodeCountdown(null);
-    }
-  }, [currentTime, duration, media.type, nextEpisode, isCountdownCancelled, nextEpisodeCountdown]);
-
-  // Countdown timer interval
+  // Countdown timer interval (10 -> 0)
   useEffect(() => {
     if (nextEpisodeCountdown === null) {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
@@ -296,8 +317,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
       backdropPath: media.backdropPath,
       season: media.type === 'tv' ? currentSeason : undefined,
       episode: media.type === 'tv' ? currentEpisode : undefined,
-      progress: Math.min(100, Math.max(0, progressPercent)),
-      currentTime: Math.round(currentTime),
+      progress: Math.min(100, Math.max(5, progressPercent)),
+      currentTime: Math.round(currentTime || 120),
       duration: Math.round(duration),
       lastWatchedAt: Date.now()
     });
@@ -312,74 +333,26 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
         case 'Escape':
           onClose();
           break;
-        case 'Space':
-        case 'KeyK':
-          e.preventDefault();
-          togglePlay();
-          break;
         case 'KeyF':
           e.preventDefault();
           toggleFullscreen();
           break;
-        case 'KeyM':
+        case 'KeyS':
           e.preventDefault();
-          toggleMute();
+          switchNextServer();
           break;
-        case 'ArrowLeft':
-        case 'KeyJ':
-          e.preventDefault();
-          seekDelta(-10);
-          break;
-        case 'ArrowRight':
-        case 'KeyL':
-          e.preventDefault();
-          seekDelta(10);
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          setVolume(v => Math.min(1, v + 0.1));
-          setIsMuted(false);
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          setVolume(v => Math.max(0, v - 0.1));
+        case 'KeyN':
+          if (nextEpisode) {
+            e.preventDefault();
+            goToNextEpisode();
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, isMuted, volume]);
-
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (videoRef.current.paused) {
-        videoRef.current.play();
-        setIsPlaying(true);
-      } else {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      }
-    } else {
-      setIsPlaying(!isPlaying);
-    }
-  };
-
-  const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-    }
-    setIsMuted(!isMuted);
-  };
-
-  const seekDelta = (delta: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + delta));
-      setCurrentTime(videoRef.current.currentTime);
-    } else {
-      setCurrentTime(t => Math.max(0, Math.min(duration, t + delta)));
-    }
-  };
+  }, [nextEpisode, providerIndex]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -404,87 +377,109 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   return (
     <div 
       ref={containerRef}
-      onMouseMove={handleMouseMove}
-      className="fixed inset-0 z-50 bg-black flex flex-col justify-between overflow-hidden select-none animate-in fade-in duration-200"
+      onMouseMove={resetControlsTimer}
+      onTouchStart={resetControlsTimer}
+      onClick={resetControlsTimer}
+      className="fixed inset-0 z-50 bg-black flex flex-col justify-between overflow-hidden select-none"
     >
       
-      {/* Top Overlay Header */}
-      <div 
-        className={`absolute top-0 left-0 right-0 z-30 p-4 sm:p-6 bg-gradient-to-b from-black/90 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-300 ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <div className="flex items-center gap-4">
+      {/* Top Persistent Glass Player Control Bar (Auto-hides with graceful transition) */}
+      <header className={`absolute top-0 left-0 right-0 z-40 p-2.5 sm:p-4 bg-gradient-to-b from-black/95 via-black/80 to-transparent backdrop-blur-md border-b border-white/[0.08] flex items-center justify-between pointer-events-auto transition-all duration-400 ${
+        showPlayerHeader || isServerModalOpen || isSeasonDrawerOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
+      }`}>
+        
+        {/* Left: Exit & Title info */}
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
           <button
             onClick={onClose}
             aria-label="Exit Cinema Player"
-            className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md transition-colors focus:outline-none"
+            className="p-2 sm:p-2.5 rounded-2xl bg-white/15 hover:bg-rose-600 text-white shadow-lg backdrop-blur-xl border border-white/20 transition-all hover:scale-105 active:scale-95 shrink-0 focus:outline-none"
+            title="Exit Player (Esc)"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 stroke-[2.5]" />
           </button>
           
-          <div>
-            <div className="flex items-center gap-2 text-xs text-rose-400 font-semibold uppercase tracking-wider">
-              <span>{media.type === 'movie' ? 'Movie' : `Season ${currentSeason} · Episode ${currentEpisode}`}</span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider">
+              <span className="text-rose-400">
+                {media.type === 'movie' ? 'Movie' : `S${currentSeason} · E${currentEpisode}`}
+              </span>
               <span aria-hidden="true" className="text-slate-600">·</span>
-              <span className="text-slate-300 font-mono-data">{selectedProvider.quality}</span>
+              <span className="text-emerald-400 font-mono-data text-[10px]">
+                {useNativePlayer ? 'Native 1080p' : selectedProvider.quality}
+              </span>
             </div>
-            <h2 className="text-base sm:text-xl font-bold text-white tracking-tight truncate max-w-md sm:max-w-xl">
-              {media.title} {media.type === 'tv' && activeEpisodeData ? `— ${activeEpisodeData.name}` : ''}
+            <h2 className="text-xs sm:text-sm md:text-base font-bold text-white tracking-tight truncate max-w-[120px] xs:max-w-[180px] sm:max-w-md md:max-w-xl">
+              {media.cleanTitle || media.title} {media.type === 'tv' && activeEpisodeData ? `— ${activeEpisodeData.name}` : ''}
             </h2>
           </div>
         </div>
 
-        {/* Top Right Controls (Server Switcher, TV Episode Drawer, Keyboard help) */}
-        <div className="flex items-center gap-2">
+        {/* Right: Quick Action Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           
-          {/* Server Switcher Trigger */}
+          {/* Server Switcher Modal Trigger */}
           <button
             onClick={() => setIsServerModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.12] hover:bg-white/[0.2] text-white text-xs font-medium backdrop-blur-md border border-white/10 transition-colors focus:outline-none"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/15 shadow-sm transition-all active:scale-95 focus:outline-none"
+            title="Switch Streaming Server"
           >
             <Server className="w-3.5 h-3.5 text-rose-400" />
-            <span className="hidden sm:inline">{selectedProvider.name}</span>
-            <span className="sm:hidden">Server</span>
+            <span className="hidden md:inline">{useNativePlayer ? 'Native Player' : selectedProvider.name}</span>
+            <span className="md:hidden font-mono-data">{useNativePlayer ? 'Native' : `S${providerIndex + 1}`}</span>
           </button>
 
-          {/* TV Episode Selector Trigger */}
-          {media.type === 'tv' && media.seasons && media.seasons.length > 0 && (
+          {/* Quick 1-Click Server Cycle */}
+          <button
+            onClick={() => switchNextServer()}
+            title="Next Server (Key S)"
+            className="p-1.5 sm:p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white border border-white/10 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+
+          {/* TV Next Episode Button */}
+          {media.type === 'tv' && nextEpisode && (
             <button
-              onClick={() => setIsSeasonDrawerOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.12] hover:bg-white/[0.2] text-white text-xs font-medium backdrop-blur-md border border-white/10 transition-colors focus:outline-none"
+              onClick={() => setNextEpisodeCountdown(10)}
+              title={`Next: S${nextEpisode.season}:E${nextEpisode.episode} ${nextEpisode.name}`}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 transition-all active:scale-95 focus:outline-none"
             >
-              <Layers className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Episodes</span>
+              <SkipForward className="w-3.5 h-3.5 fill-white" />
+              <span className="hidden sm:inline">Next Episode</span>
+              <span className="sm:hidden font-mono-data">Next</span>
             </button>
           )}
 
-          {/* Player Mode Switcher (Embed vs Native Direct) */}
-          <button
-            onClick={() => setPlayerMode(playerMode === 'embed' ? 'direct' : 'embed')}
-            title="Switch between multi-source embed stream and native direct player"
-            className="p-2 rounded-lg bg-white/[0.1] hover:bg-white/[0.2] text-slate-300 hover:text-white transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
+          {/* TV Episode Drawer Trigger */}
+          {media.type === 'tv' && media.seasons && media.seasons.length > 0 && (
+            <button
+              onClick={() => setIsSeasonDrawerOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 text-xs font-semibold backdrop-blur-md border border-indigo-500/40 transition-all active:scale-95 focus:outline-none"
+              title="View Episodes List"
+            >
+              <Layers className="w-3.5 h-3.5 text-indigo-300" />
+              <span className="hidden sm:inline">Episodes</span>
+            </button>
+          )}
 
-          {/* Keyboard Shortcuts Dialog */}
+          {/* Fullscreen Button */}
           <button
-            onClick={() => setShowKeyboardHelp(!showKeyboardHelp)}
-            title="Keyboard Shortcuts"
-            className="p-2 rounded-lg bg-white/[0.1] hover:bg-white/[0.2] text-slate-300 hover:text-white transition-colors hidden sm:block"
+            onClick={toggleFullscreen}
+            title="Toggle Fullscreen (Key F)"
+            className="p-1.5 sm:p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10 transition-colors"
           >
-            <Keyboard className="w-4 h-4" />
+            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           </button>
         </div>
-      </div>
+      </header>
 
       {/* Main Video Viewport */}
-      <div className="relative w-full h-full flex items-center justify-center bg-black">
+      <main className="relative w-full h-full flex items-center justify-center bg-black">
         
         {/* Resume Toast Notification */}
         {resumeToast && resumeToast.visible && (
-          <div className="absolute top-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-black/85 backdrop-blur-xl border border-rose-500/40 text-white shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-2xl bg-black/95 backdrop-blur-xl border border-rose-500/50 text-white shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300">
             <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
             <span className="text-xs font-medium">
               Resumed from <strong className="font-mono-data text-rose-300">{formatTime(resumeToast.time)}</strong>
@@ -508,14 +503,14 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
           </div>
         )}
 
-        {/* Next Episode Floating Countdown Widget */}
+        {/* Next Episode Floating Countdown Card */}
         {nextEpisodeCountdown !== null && nextEpisode && (
-          <div className="absolute bottom-28 right-6 z-40 max-w-sm w-full sm:w-80 rounded-2xl bg-black/90 backdrop-blur-2xl border border-rose-500/40 p-4 shadow-2xl space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="absolute bottom-6 right-4 sm:right-8 z-40 max-w-sm w-[calc(100vw-2rem)] sm:w-84 rounded-3xl bg-black/95 backdrop-blur-2xl border border-rose-500/50 p-4 shadow-2xl space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="relative w-5 h-5 flex items-center justify-center">
-                  <div className="w-5 h-5 rounded-full border-2 border-rose-500/30 border-t-rose-500 animate-spin" />
-                  <span className="absolute text-[10px] font-mono-data font-bold text-rose-400">
+              <div className="flex items-center gap-2.5">
+                <div className="relative w-6 h-6 flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-full border-2 border-rose-500/30 border-t-rose-500 animate-spin" />
+                  <span className="absolute text-[11px] font-mono-data font-extrabold text-rose-400">
                     {nextEpisodeCountdown}
                   </span>
                 </div>
@@ -537,8 +532,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
             </div>
 
             {/* Next Episode Preview Card */}
-            <div className="flex items-center gap-3 p-2 rounded-xl bg-white/[0.04] border border-white/5">
-              <div className="w-16 h-10 rounded-lg overflow-hidden bg-slate-800 shrink-0">
+            <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-white/[0.05] border border-white/10">
+              <div className="w-16 h-11 rounded-xl overflow-hidden bg-slate-800 shrink-0 relative">
                 <img
                   src={nextEpisode.stillPath || media.backdropPath}
                   alt={nextEpisode.name}
@@ -547,8 +542,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                 />
               </div>
               <div className="min-w-0 space-y-0.5">
-                <span className="text-[10px] font-mono-data text-rose-400 font-bold">
-                  S{nextEpisode.season}:E{nextEpisode.episode}
+                <span className="text-[10px] font-mono-data text-rose-400 font-bold block">
+                  Season {nextEpisode.season} · Episode {nextEpisode.episode}
                 </span>
                 <h5 className="text-xs font-semibold text-white truncate">
                   {nextEpisode.name}
@@ -560,7 +555,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
             <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={goToNextEpisode}
-                className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-600/30 active:scale-98 transition-all"
+                className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-600/30 active:scale-98 transition-all"
               >
                 <Play className="w-3.5 h-3.5 fill-white" />
                 <span>Play Now</span>
@@ -571,7 +566,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                   setIsCountdownCancelled(true);
                   setNextEpisodeCountdown(null);
                 }}
-                className="py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white text-xs font-medium transition-colors"
+                className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white text-xs font-medium transition-colors"
               >
                 Cancel
               </button>
@@ -579,22 +574,21 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
           </div>
         )}
 
-        {playerMode === 'embed' ? (
-          <iframe
-            key={`${selectedProvider.id}-${media.tmdbId}-${currentSeason}-${currentEpisode}`}
-            src={embedUrl}
-            title={`${media.title} Stream`}
-            className="w-full h-full border-0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-          />
-        ) : (
-          <div className="relative w-full h-full flex items-center justify-center">
+        {/* Video Mode 1: Native Direct HTML5 Video Player */}
+        {useNativePlayer || selectedProvider.type === 'direct' ? (
+          <div className="relative w-full h-full flex items-center justify-center bg-black group">
             <video
               ref={videoRef}
-              src={media.directStreamUrl || SAMPLE_DIRECT_STREAMS[0]}
+              src={media.directStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'}
               autoPlay
               playsInline
+              controls={false}
+              onLoadedData={() => {
+                setIsStreamLoading(false);
+                if (currentTime > 0 && videoRef.current) {
+                  videoRef.current.currentTime = currentTime;
+                }
+              }}
               onTimeUpdate={() => {
                 if (videoRef.current) {
                   setCurrentTime(videoRef.current.currentTime);
@@ -602,148 +596,155 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                 }
               }}
               onEnded={() => {
-                if (media.type === 'tv') {
-                  setCurrentEpisode(e => e + 1);
-                }
+                if (nextEpisode) goToNextEpisode();
               }}
               className="w-full h-full object-contain"
             />
 
-            {/* Skip Intro Button (Show during 0:10 - 1:20) */}
-            {currentTime > 10 && currentTime < 85 && (
-              <button
-                onClick={() => seekDelta(75)}
-                className="absolute bottom-24 right-8 z-30 px-4 py-2 rounded-lg bg-black/80 hover:bg-black/95 text-white border border-white/20 text-xs font-semibold backdrop-blur-md shadow-2xl flex items-center gap-2 hover:scale-105 transition-all"
-              >
-                <FastForward className="w-4 h-4 text-rose-500" />
-                <span>Skip Intro</span>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Bottom Video Controls (Active in Direct Mode or as Companion Toolbar) */}
-      {playerMode === 'direct' && (
-        <div 
-          className={`absolute bottom-0 left-0 right-0 z-30 p-4 sm:p-6 bg-gradient-to-t from-black/95 via-black/70 to-transparent transition-opacity duration-300 ${
-            showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
-        >
-          {/* Progress Timeline Slider */}
-          <div className="space-y-2 mb-3">
-            <div className="relative group/timeline cursor-pointer flex items-center">
-              <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={currentTime}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  setCurrentTime(val);
-                  if (videoRef.current) videoRef.current.currentTime = val;
-                }}
-                className="w-full h-1.5 bg-white/20 rounded-full appearance-none accent-rose-600 cursor-pointer focus:outline-none group-hover/timeline:h-2.5 transition-all"
-              />
-            </div>
-
-            <div className="flex items-center justify-between text-xs font-mono-data text-slate-400">
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(duration)}</span>
-            </div>
-          </div>
-
-          {/* Control Buttons Row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 sm:gap-4">
-              <button
-                onClick={togglePlay}
-                className="p-2.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow-lg transition-transform active:scale-95"
-              >
-                {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white translate-x-0.5" />}
-              </button>
-
-              <button
-                onClick={() => seekDelta(-10)}
-                title="Rewind 10s"
-                className="p-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => seekDelta(10)}
-                title="Forward 10s"
-                className="p-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <RotateCw className="w-4 h-4" />
-              </button>
-
-              {/* Volume Slider */}
-              <div className="flex items-center gap-2 group/vol">
+            {/* Custom Cinema Video Controls Overlay (Auto-hides with graceful animation) */}
+            <div className={`absolute bottom-4 inset-x-4 sm:inset-x-8 z-30 p-3 rounded-2xl glass-dock flex items-center justify-between gap-4 transition-all duration-400 shadow-2xl ${
+              showBottomQuickBar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
+            }`}>
+              <div className="flex items-center gap-2 sm:gap-3">
                 <button
-                  onClick={toggleMute}
-                  className="p-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                  onClick={() => {
+                    if (videoRef.current) {
+                      if (isPlaying) {
+                        videoRef.current.pause();
+                        setIsPlaying(false);
+                      } else {
+                        videoRef.current.play();
+                        setIsPlaying(true);
+                      }
+                    }
+                  }}
+                  className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-lg active:scale-95"
+                  aria-label="Play / Pause"
                 >
-                  {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+                  {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white" />}
                 </button>
+
+                <button
+                  onClick={() => {
+                    if (videoRef.current) videoRef.current.currentTime -= 10;
+                  }}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white"
+                  title="Rewind 10s"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (videoRef.current) videoRef.current.currentTime += 10;
+                  }}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white"
+                  title="Forward 10s"
+                >
+                  <RotateCw className="w-4 h-4" />
+                </button>
+
+                <span className="text-xs font-mono-data text-slate-300">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              </div>
+
+              {/* Progress Scrub Bar */}
+              <div className="flex-1 max-w-md hidden sm:block">
                 <input
                   type="range"
                   min={0}
-                  max={1}
-                  step={0.05}
-                  value={isMuted ? 0 : volume}
+                  max={duration || 100}
+                  value={currentTime}
                   onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setVolume(val);
-                    setIsMuted(false);
-                    if (videoRef.current) {
-                      videoRef.current.volume = val;
-                      videoRef.current.muted = false;
-                    }
+                    const t = Number(e.target.value);
+                    setCurrentTime(t);
+                    if (videoRef.current) videoRef.current.currentTime = t;
                   }}
-                  className="w-16 sm:w-20 h-1 bg-white/20 rounded-full appearance-none accent-rose-500 cursor-pointer"
+                  className="w-full accent-rose-500 h-1.5 bg-white/20 rounded-lg cursor-pointer"
                 />
               </div>
-            </div>
 
-            {/* Right Tools (Speed, Quality, Fullscreen) */}
-            <div className="flex items-center gap-2 sm:gap-3">
-              {/* Playback speed selector */}
-              <div className="relative">
+              {/* Volume & Switch to Embed mode */}
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    const rates = [0.75, 1, 1.25, 1.5, 2];
-                    const nextIdx = (rates.indexOf(playbackRate) + 1) % rates.length;
-                    const nextRate = rates[nextIdx];
-                    setPlaybackRate(nextRate);
-                    if (videoRef.current) videoRef.current.playbackRate = nextRate;
+                    if (videoRef.current) {
+                      videoRef.current.muted = !isMuted;
+                      setIsMuted(!isMuted);
+                    }
                   }}
-                  className="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-xs font-mono-data text-white transition-colors"
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white"
                 >
-                  {playbackRate}x
+                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setUseNativePlayer(false);
+                    switchNextServer(0);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
+                >
+                  Embed Mode
                 </button>
               </div>
+            </div>
+          </div>
+        ) : (
+          /* Video Mode 2: Multi-Source High-Speed Embed Player */
+          <div className="relative w-full h-full">
+            <iframe
+              key={`${selectedProvider.id}-${media.tmdbId}-${currentSeason}-${currentEpisode}`}
+              src={embedUrl}
+              title={`${media.title} Stream`}
+              onLoad={() => setIsStreamLoading(false)}
+              className="w-full h-full border-0 bg-black"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+              referrerPolicy="no-referrer"
+              allowFullScreen
+            />
+
+            {/* Quick-Action Bar on Bottom: AUTOMATICALLY DISAPPEARS AFTER 3.5s */}
+            <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 p-1.5 rounded-2xl glass-dock shadow-2xl transition-all duration-500 ease-out ${
+              showBottomQuickBar ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
+            }`}>
+              <button
+                onClick={() => setUseNativePlayer(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
+              >
+                <Film className="w-3.5 h-3.5" />
+                <span>Play in Native Player</span>
+              </button>
 
               <button
-                onClick={toggleFullscreen}
-                className="p-2 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                onClick={() => switchNextServer()}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold transition-colors"
               >
-                {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+                <RefreshCw className="w-3 h-3" />
+                <span>Next Server</span>
+              </button>
+
+              <button
+                onClick={() => setShowBottomQuickBar(false)}
+                className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                title="Dismiss buttons"
+              >
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </main>
 
       {/* Stream Server Switcher Modal */}
       {isServerModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl glass-dropdown p-6 space-y-4 shadow-2xl border border-white/10">
+          <div className="w-full max-w-md rounded-3xl glass-dropdown p-6 space-y-4 shadow-2xl border border-white/10">
             <div className="flex items-center justify-between pb-2 border-b border-white/10">
               <div className="flex items-center gap-2">
                 <Server className="w-5 h-5 text-rose-500" />
-                <h3 className="text-base font-bold text-white">Select Stream Provider</h3>
+                <h3 className="text-base font-bold text-white">Streaming Servers</h3>
               </div>
               <button
                 onClick={() => setIsServerModalOpen(false)}
@@ -754,19 +755,50 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
             </div>
 
             <p className="text-xs text-slate-300">
-              If your current stream buffers or fails, instantly switch to an alternate high-bandwidth server node below:
+              Select a streaming node below to instantly switch video source:
             </p>
 
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              {STREAM_PROVIDERS.map((provider) => (
+              {/* Native HD Player Option */}
+              <button
+                onClick={() => {
+                  setUseNativePlayer(true);
+                  setIsServerModalOpen(false);
+                }}
+                className={`w-full p-3 rounded-2xl flex items-center justify-between text-left transition-all border ${
+                  useNativePlayer
+                    ? 'bg-emerald-600/20 border-emerald-500 text-white'
+                    : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/5 text-slate-300'
+                }`}
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-white">🎬 Native Direct HD Player</span>
+                    <span className="text-[10px] font-mono-data bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">
+                      Unblocked
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">Direct High-Speed HTML5 Cinema Video</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono-data text-emerald-400 font-medium">1080p FHD</span>
+                  {useNativePlayer && <Check className="w-4 h-4 text-emerald-400" />}
+                </div>
+              </button>
+
+              {/* Embed Nodes */}
+              {STREAM_PROVIDERS.map((provider, idx) => (
                 <button
                   key={provider.id}
                   onClick={() => {
-                    setSelectedProvider(provider);
+                    setProviderIndex(idx);
+                    setUseNativePlayer(provider.type === 'direct');
+                    setIsStreamLoading(true);
                     setIsServerModalOpen(false);
                   }}
-                  className={`w-full p-3 rounded-xl flex items-center justify-between text-left transition-all border ${
-                    selectedProvider.id === provider.id
+                  className={`w-full p-3 rounded-2xl flex items-center justify-between text-left transition-all border ${
+                    !useNativePlayer && selectedProvider.id === provider.id
                       ? 'bg-rose-600/20 border-rose-500 text-white'
                       : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/5 text-slate-300'
                   }`}
@@ -785,7 +817,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
 
                   <div className="flex items-center gap-3">
                     <span className="text-xs font-mono-data text-emerald-400 font-medium">{provider.quality}</span>
-                    {selectedProvider.id === provider.id && (
+                    {!useNativePlayer && selectedProvider.id === provider.id && (
                       <Check className="w-4 h-4 text-rose-400" />
                     )}
                   </div>
@@ -819,7 +851,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                 <button
                   key={s.seasonNumber}
                   onClick={() => setCurrentSeason(s.seasonNumber)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors ${
                     currentSeason === s.seasonNumber
                       ? 'bg-rose-600 text-white'
                       : 'bg-white/[0.06] text-slate-300 hover:bg-white/[0.12]'
@@ -835,8 +867,8 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
               {loadingDrawerEpisodes ? (
                 <div className="space-y-2 py-2">
                   {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="p-2.5 rounded-xl bg-white/[0.04] animate-pulse flex items-center gap-3">
-                      <div className="w-16 h-10 rounded-md bg-white/10 shrink-0" />
+                    <div key={i} className="p-2.5 rounded-2xl bg-white/[0.04] animate-pulse flex items-center gap-3">
+                      <div className="w-16 h-10 rounded-xl bg-white/10 shrink-0" />
                       <div className="flex-1 space-y-1.5">
                         <div className="h-3 bg-white/10 rounded w-2/3" />
                         <div className="h-2.5 bg-white/5 rounded w-1/3" />
@@ -852,85 +884,42 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                       setCurrentEpisode(ep.episodeNumber);
                       setIsSeasonDrawerOpen(false);
                     }}
-                    className={`w-full p-2.5 rounded-xl flex items-center gap-3 text-left transition-all border ${
+                    className={`w-full p-2.5 rounded-2xl flex items-center gap-3 text-left transition-all ${
                       currentEpisode === ep.episodeNumber
-                        ? 'bg-rose-600/20 border-rose-500'
-                        : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/5'
+                        ? 'bg-rose-600/20 border border-rose-500/50 text-white'
+                        : 'bg-white/[0.03] hover:bg-white/[0.08] text-slate-300'
                     }`}
                   >
-                    <div className="w-16 h-10 rounded-md overflow-hidden bg-slate-800 shrink-0 relative">
+                    <div className="w-16 h-10 rounded-xl overflow-hidden bg-slate-800 shrink-0 relative">
                       <img
                         src={ep.stillPath || media.backdropPath}
                         alt={ep.name}
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                        <Play className="w-3 h-3 fill-white text-white" />
-                      </div>
+                      {currentEpisode === ep.episodeNumber && (
+                        <div className="absolute inset-0 bg-rose-600/40 flex items-center justify-center">
+                          <Play className="w-4 h-4 fill-white text-white" />
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-white truncate">
-                        {ep.episodeNumber}. {ep.name}
-                      </p>
-                      <p className="text-[11px] text-slate-400 font-mono-data">
-                        {ep.runtime} min
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono-data text-rose-400 font-bold">
+                          E{ep.episodeNumber}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{ep.runtime || 45}m</span>
+                      </div>
+                      <h4 className="text-xs font-semibold text-white truncate">{ep.name}</h4>
                     </div>
                   </button>
                 ))
               ) : (
-                <div className="text-center py-8 space-y-2 text-slate-400 text-xs">
-                  <p>No episodes found for this season.</p>
-                  <button
-                    onClick={() => ensureSeasonEpisodesLoaded(currentSeason)}
-                    className="px-3 py-1.5 rounded-lg bg-rose-600 text-white font-medium text-xs"
-                  >
-                    Fetch Episodes
-                  </button>
+                <div className="py-8 text-center text-xs text-slate-400">
+                  No episodes found for this season.
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Keyboard Shortcuts Help Dialog */}
-      {showKeyboardHelp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-sm rounded-2xl glass-dropdown p-6 space-y-4 border border-white/10 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-white/10">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Keyboard className="w-4 h-4 text-rose-400" />
-                Keyboard Shortcuts
-              </h3>
-              <button onClick={() => setShowKeyboardHelp(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-slate-300">Play / Pause</span>
-                <kbd className="px-2 py-0.5 bg-white/10 rounded font-mono-data text-white">Space / K</kbd>
-              </div>
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-slate-300">Seek 10s Backward / Forward</span>
-                <kbd className="px-2 py-0.5 bg-white/10 rounded font-mono-data text-white">← / →</kbd>
-              </div>
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-slate-300">Toggle Fullscreen</span>
-                <kbd className="px-2 py-0.5 bg-white/10 rounded font-mono-data text-white">F</kbd>
-              </div>
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-slate-300">Mute / Unmute</span>
-                <kbd className="px-2 py-0.5 bg-white/10 rounded font-mono-data text-white">M</kbd>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-300">Volume Up / Down</span>
-                <kbd className="px-2 py-0.5 bg-white/10 rounded font-mono-data text-white">↑ / ↓</kbd>
-              </div>
             </div>
           </div>
         </div>

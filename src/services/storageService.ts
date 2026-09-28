@@ -291,3 +291,36 @@ export function addReview(review: Omit<UserReview, 'id' | 'createdAt' | 'likes'>
   localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify([newRev, ...all]));
   return newRev;
 }
+
+// Deleted Movie IDs Tracking (Persistent local blacklist so deleted movies NEVER return)
+const DELETED_MOVIES_KEY = 'nexplay_deleted_movie_ids';
+
+export function getLocalDeletedMovieIds(): number[] {
+  try {
+    const raw = localStorage.getItem(DELETED_MOVIES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalDeletedMovieId(id: number): void {
+  try {
+    const current = getLocalDeletedMovieIds();
+    if (!current.includes(id)) {
+      current.push(id);
+      localStorage.setItem(DELETED_MOVIES_KEY, JSON.stringify(current));
+    }
+  } catch (e) {
+    console.error('Error saving deleted movie ID to localStorage', e);
+  }
+}
+
+export function removeLocalDeletedMovieId(id: number): void {
+  try {
+    const current = getLocalDeletedMovieIds().filter(i => i !== id);
+    localStorage.setItem(DELETED_MOVIES_KEY, JSON.stringify(current));
+  } catch (e) {
+    console.error('Error removing deleted movie ID from localStorage', e);
+  }
+}

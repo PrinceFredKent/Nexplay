@@ -1,9 +1,14 @@
 import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
@@ -301,7 +306,7 @@ app.post('/api/search-movie', async (req: Request, res: Response) => {
     if (ai && formattedResults.length === 0) {
       try {
         const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
           contents: `You are an expert film and TV database API. For the search query "${queryTitle}", return a JSON array of up to 6 real historical movies or TV series across different release years (e.g. original films, remakes, sequels, TV spin-offs). Return valid JSON matching the schema.`,
           config: {
             responseMimeType: 'application/json',
@@ -546,7 +551,7 @@ app.post('/api/tv-season', async (req: Request, res: Response) => {
     if (episodes.length === 0 && ai && showTitle) {
       try {
         const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
           contents: `Generate a list of real canonical episodes for the TV Series "${showTitle}", Season ${seasonNum}.
           If the show is Love, Death & Robots, Stranger Things, Arcane, etc., provide real episode titles, runtimes, and synopses.
           Return a JSON array of episodes with schema:
@@ -626,20 +631,40 @@ app.post('/api/tv-season', async (req: Request, res: Response) => {
   }
 });
 
+// Global Express Error Middleware
+app.use((err: any, req: Request, res: Response, next: any) => {
+  console.error('[Express Server Error Handler]:', err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal Server Error', message: err?.message || 'Unexpected failure' });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const isHmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
       server: { 
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR !== 'true',
-        watch: process.env.DISABLE_HMR === 'true' ? null : {},
+        hmr: !isHmrDisabled,
+        watch: isHmrDisabled ? null : {},
       },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static('dist'));
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
   }
+
+  // Prevent unexpected uncaught node crash
+  process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught Exception caught to prevent server blackout:', err);
+  });
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Nexplay Full-Stack Express Server running on http://0.0.0.0:${PORT}`);

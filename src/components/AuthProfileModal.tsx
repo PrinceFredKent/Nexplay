@@ -554,9 +554,39 @@ export const AuthProfileModal: React.FC<AuthProfileModalProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold mb-1">
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Nexplay Member Account</span>
+                <div className="p-3 rounded-2xl bg-black/40 border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Nexplay Member Account ({currentUser.email || 'User'})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {onOpenAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenAdmin();
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95"
+                      >
+                        <Crown className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                        <span>Admin Hub</span>
+                      </button>
+                    )}
+                    {onOpenAutoFill && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenAutoFill();
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 fill-white text-white" />
+                        <span>+ Add Movie</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
               <h2 className="text-3xl font-black text-white font-display tracking-tight">Manage Your Profile</h2>
@@ -866,6 +896,40 @@ export const AuthProfileModal: React.FC<AuthProfileModalProps> = ({
                 >
                   Browse Free
                 </button>
+              </div>
+
+              {/* Quick Admin Access & Add Movie Portal */}
+              <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+                  <span className="text-[11px] text-amber-200 font-bold">Admin Movie Portal</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {onOpenAutoFill && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenAutoFill();
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-rose-600 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white font-bold text-[10px] shadow transition-all active:scale-95"
+                    >
+                      + Add Movie
+                    </button>
+                  )}
+                  {onOpenAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenAdmin();
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[10px] transition-all active:scale-95"
+                    >
+                      Admin Center
+                    </button>
+                  )}
+                </div>
               </div>
 
             </div>
