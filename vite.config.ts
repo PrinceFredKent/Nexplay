@@ -1,10 +1,12 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
-import {defineConfig} from 'vite';
-import {VitePWA} from 'vite-plugin-pwa';
+import { fileURLToPath, URL } from 'node:url';
+import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const projectRoot = fileURLToPath(new URL('./', import.meta.url));
+
   return {
     plugins: [
       react(),
@@ -102,7 +104,22 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': projectRoot,
+      },
+    },
+    build: {
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('firebase')) return 'firebase';
+              if (id.includes('react') || id.includes('scheduler')) return 'react-vendor';
+              if (id.includes('lucide-react') || id.includes('motion')) return 'ui-vendor';
+              return 'vendor';
+            }
+          },
+        },
       },
     },
     server: {
