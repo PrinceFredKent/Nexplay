@@ -62,6 +62,9 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   const [providerIndex, setProviderIndex] = useState(0);
   const selectedProvider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
   
+  // Ad-Shield State (Ultra by default: blocks all new tabs, popups, and clickjack redirects)
+  const [adBlockMode, setAdBlockMode] = useState<'ultra' | 'permissive'>('ultra');
+
   // UI & Drawer States
   const [isStreamLoading, setIsStreamLoading] = useState(true);
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
@@ -71,6 +74,20 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   const [showQuickBar, setShowQuickBar] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const serverDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Global Popup & Tab Redirect Interceptor
+  useEffect(() => {
+    const originalWindowOpen = window.open;
+    if (adBlockMode === 'ultra') {
+      window.open = function (...args: any[]) {
+        console.warn('[Nexplay Ultra Ad-Shield] Intercepted and blocked popup/tab redirect attempt:', args);
+        return null;
+      };
+    }
+    return () => {
+      window.open = originalWindowOpen;
+    };
+  }, [adBlockMode]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -445,12 +462,51 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
 
               </div>
 
+              {/* Ad-Shield Security Toggle */}
+              <div className="p-2 bg-black/40 rounded-b-2xl">
+                <button
+                  type="button"
+                  onClick={() => setAdBlockMode(prev => prev === 'ultra' ? 'permissive' : 'ultra')}
+                  className="w-full p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 flex items-center justify-between text-left transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-emerald-300 block">
+                        Ad-Shield: {adBlockMode === 'ultra' ? 'ULTRA ACTIVE' : 'STANDARD'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block font-mono">
+                        {adBlockMode === 'ultra' ? 'Popups & Tab Redirects Blocked' : 'Popups Allowed'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                    {adBlockMode === 'ultra' ? 'STRICT' : 'PERMISSIVE'}
+                  </span>
+                </button>
+              </div>
+
             </div>
           )}
         </div>
 
-        {/* Right: TV Episodes, Next Server, Fullscreen */}
+        {/* Right: TV Episodes, Ad-Shield Pill, Next Server, Fullscreen */}
         <div className="flex items-center gap-2">
+          
+          {/* Ad-Shield Pill Button */}
+          <button
+            type="button"
+            onClick={() => setAdBlockMode(prev => prev === 'ultra' ? 'permissive' : 'ultra')}
+            className={`hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold backdrop-blur-md border transition-all cursor-pointer ${
+              adBlockMode === 'ultra'
+                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 shadow-lg shadow-emerald-950/30'
+                : 'bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25'
+            }`}
+            title={adBlockMode === 'ultra' ? 'Ultra Ad-Shield Active: All popups, pop-unders, and tab redirects are blocked by HTML5 sandbox.' : 'Standard Mode'}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Ad-Shield: {adBlockMode === 'ultra' ? 'ULTRA' : 'STANDARD'}</span>
+          </button>
           
           {/* TV Episodes Drawer Trigger */}
           {media.type === 'tv' && (
@@ -668,12 +724,17 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
         {playerMode === 'embed' && (
           <div className="relative w-full h-full bg-black">
             <iframe
-              key={`${selectedProvider.id}-${media.tmdbId}-${currentSeason}-${currentEpisode}`}
+              key={`${selectedProvider.id}-${media.tmdbId}-${currentSeason}-${currentEpisode}-${adBlockMode}`}
               src={embedUrl}
               title={`${media.title} Stream`}
               onLoad={() => setIsStreamLoading(false)}
               className="w-full h-full border-0 bg-black"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+              sandbox={
+                adBlockMode === 'ultra'
+                  ? 'allow-scripts allow-same-origin allow-forms allow-presentation allow-encrypted-media'
+                  : 'allow-scripts allow-same-origin allow-forms allow-presentation allow-encrypted-media allow-popups'
+              }
               referrerPolicy="no-referrer"
               allowFullScreen
             />

@@ -23,16 +23,25 @@ export function useTvRemoteNavigation({ onBack, onPlayPause }: TvRemoteNavigatio
       );
     };
 
-    // Back keys (Escape, Android TV Back, Tizen 10009, WebOS 461)
-    const isBackKey = (key: string, keyCode: number) => {
+    // Back keys (Escape, Android TV Remote Back, Tizen 10009, WebOS 461)
+    const isBackKey = (key: string, keyCode: number, isInput: boolean) => {
+      // NEVER treat Backspace / keyCode 8 as a navigation back key
+      if (key === 'Backspace' || keyCode === 8) {
+        return false;
+      }
+
+      // If typing in any input field or textarea, only Escape closes the modal or dismisses
+      if (isInput) {
+        return key === 'Escape' || keyCode === 27;
+      }
+
       return (
         key === 'Escape' ||
         key === 'Back' ||
         key === 'BrowserBack' ||
         keyCode === 27 ||
         keyCode === 10009 ||
-        keyCode === 461 ||
-        keyCode === 8
+        keyCode === 461
       );
     };
 
@@ -54,12 +63,31 @@ export function useTvRemoteNavigation({ onBack, onPlayPause }: TvRemoteNavigatio
         document.body.classList.add('tv-navigation-active');
       }
 
-      // If user is currently typing in an input or textarea, don't hijack unless it's Enter or Escape
-      const activeTag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
-      const isInput = activeTag === 'input' || activeTag === 'textarea';
+      // Detect if user is focused on an input, textarea, select, or contenteditable element
+      const target = e.target as HTMLElement | null;
+      const activeEl = document.activeElement as HTMLElement | null;
+      const targetTag = target?.tagName?.toLowerCase() || '';
+      const activeTag = activeEl?.tagName?.toLowerCase() || '';
+      
+      const isInput = 
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        Boolean(target?.isContentEditable) ||
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl instanceof HTMLSelectElement ||
+        Boolean(activeEl?.isContentEditable) ||
+        ['input', 'textarea', 'select'].includes(targetTag) ||
+        ['input', 'textarea', 'select'].includes(activeTag);
+
+      // If user is pressing Backspace, always preserve standard native character deletion!
+      if (e.key === 'Backspace' || e.keyCode === 8) {
+        return;
+      }
 
       // 1. Handle Back Key
-      if (isBackKey(e.key, e.keyCode)) {
+      if (isBackKey(e.key, e.keyCode, isInput)) {
         if (onBack) {
           e.preventDefault();
           onBack();
