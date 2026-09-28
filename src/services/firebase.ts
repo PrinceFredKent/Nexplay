@@ -20,7 +20,8 @@ import {
   getDocs, 
   getDocFromServer,
   query,
-  orderBy
+  orderBy,
+  onSnapshot
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { MediaItem, WatchHistoryItem } from '../types/movie';
@@ -92,12 +93,24 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-// User Profile Types
-export const SUPER_ADMIN_EMAILS = ['taxwiseplatform@gmail.com', 'princefredkent@gmail.com'];
+// User Profile Types - Authorized Admins
+export const SUPER_ADMIN_EMAIL = 'princefredkent@gmail.com';
+export const SUPER_ADMIN_EMAILS = [
+  'princefredkent@gmail.com',
+  'taxwiseplatform@gmail.com'
+];
 
 export function isSuperAdminEmail(email?: string | null): boolean {
   if (!email) return false;
-  return SUPER_ADMIN_EMAILS.some(e => e.toLowerCase() === email.trim().toLowerCase());
+  const clean = email.trim().toLowerCase();
+  return SUPER_ADMIN_EMAILS.some(admin => admin.toLowerCase() === clean);
+}
+
+// Data Sanitizer to prevent Firestore "Unsupported field value: undefined" errors
+export function sanitizeForFirestore<T>(data: T): T {
+  return JSON.parse(
+    JSON.stringify(data, (_, value) => (value === undefined ? null : value))
+  );
 }
 
 export interface UserProfileData {
@@ -255,7 +268,22 @@ export async function getFirestoreWatchHistory(userId: string): Promise<WatchHis
   }
 }
 
-// Global Catalog Firestore Operations
+// Global Catalog Firestore Operations (Real-Time Subscription for public and logged-in users)
+export function subscribeToFirestoreCatalog(onUpdate: (items: MediaItem[]) => void): () => void {
+  const colRef = collection(db, 'catalog');
+  const unsubscribe = onSnapshot(
+    colRef,
+    (snap) => {
+      const items = snap.docs.map(d => d.data() as MediaItem);
+      onUpdate(items);
+    },
+    (err) => {
+      console.warn('Firestore catalog real-time subscription error:', err);
+    }
+  );
+  return unsubscribe;
+}
+
 export async function getFirestoreCatalog(): Promise<MediaItem[]> {
   const path = 'catalog';
   try {
@@ -271,8 +299,10 @@ export async function saveFirestoreCatalogItem(media: MediaItem): Promise<void> 
   const docRef = doc(db, 'catalog', String(media.id));
   const path = `catalog/${media.id}`;
   try {
-    await setDoc(docRef, media);
+    const cleanMedia = sanitizeForFirestore(media);
+    await setDoc(docRef, cleanMedia);
   } catch (err) {
+    console.error('Failed to save catalog item to Firestore:', err);
     handleFirestoreError(err, OperationType.WRITE, path);
   }
 }
@@ -285,6 +315,22 @@ export async function deleteFirestoreCatalogItem(mediaId: number): Promise<void>
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
   }
+}
+
+// Deleted Movie IDs Blacklist Persistence in Firestore (Real-time subscription)
+export function subscribeToFirestoreDeletedMovieIds(onUpdate: (ids: number[]) => void): () => void {
+  const colRef = collection(db, 'deleted_movies');
+  const unsubscribe = onSnapshot(
+    colRef,
+    (snap) => {
+      const ids = snap.docs.map(d => Number(d.id)).filter(id => !isNaN(id));
+      onUpdate(ids);
+    },
+    (err) => {
+      console.warn('Firestore deleted_movies real-time subscription error:', err);
+    }
+  );
+  return unsubscribe;
 }
 
 // Deleted Movie IDs Blacklist Persistence in Firestore

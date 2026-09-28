@@ -25,10 +25,11 @@ interface AdminControlModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUserEmail: string | null;
-  onOpenAutoFill: () => void;
+  onOpenAutoFill?: () => void;
   catalogItems: MediaItem[];
   onRemoveCatalogItem: (id: number) => void;
   onToggleFeatureItem: (id: number) => void;
+  onPurgeDatabase?: () => Promise<void> | void;
 }
 
 export const AdminControlModal: React.FC<AdminControlModalProps> = ({
@@ -38,10 +39,13 @@ export const AdminControlModal: React.FC<AdminControlModalProps> = ({
   onOpenAutoFill,
   catalogItems,
   onRemoveCatalogItem,
-  onToggleFeatureItem
+  onToggleFeatureItem,
+  onPurgeDatabase
 }) => {
   const [activeTab, setActiveTab] = useState<'catalog' | 'users' | 'system'>('catalog');
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  const isAdmin = currentUserEmail?.trim().toLowerCase() === 'princefredkent@gmail.com';
 
   if (!isOpen) return null;
 
@@ -142,16 +146,18 @@ export const AdminControlModal: React.FC<AdminControlModalProps> = ({
                   <p className="text-xs text-slate-400">Add new blockbusters with auto-fill or delete items from the live feed.</p>
                 </div>
 
-                <button
-                  onClick={() => {
-                    onClose();
-                    onOpenAutoFill();
-                  }}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 via-red-600 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white text-xs font-bold shadow-lg shadow-rose-950/50 flex items-center gap-2 transition-all active:scale-95 shrink-0"
-                >
-                  <Sparkles className="w-4 h-4 fill-white" />
-                  <span>Auto-Fill & Add New Movie</span>
-                </button>
+                {onOpenAutoFill && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onOpenAutoFill();
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 via-red-600 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white text-xs font-bold shadow-lg shadow-rose-950/50 flex items-center gap-2 transition-all active:scale-95 shrink-0"
+                  >
+                    <Sparkles className="w-4 h-4 fill-white" />
+                    <span>Auto-Fill & Add New Movie</span>
+                  </button>
+                )}
               </div>
 
               {/* Items Table / List */}
@@ -282,6 +288,32 @@ export const AdminControlModal: React.FC<AdminControlModalProps> = ({
                 <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/30 font-bold">
                   ● ACTIVE
                 </span>
+              </div>
+
+              {/* Database Clean & Reset */}
+              <div className="p-5 rounded-2xl bg-rose-950/20 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-sm font-bold text-rose-300 flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4 text-rose-400" />
+                    Wipe Database & Clean All Storage
+                  </h4>
+                  <p className="text-xs text-slate-400 max-w-lg mt-1">
+                    Purges all Firestore catalog entries, user history, deleted blacklist, and cached local storage to restore an absolutely pristine state.
+                  </p>
+                </div>
+                {onPurgeDatabase && (
+                  <button
+                    onClick={async () => {
+                      if (window.confirm('Are you sure you want to clean out everything in the database and local storage?')) {
+                        await onPurgeDatabase();
+                        showToast('Database & storage completely cleaned.');
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition-all shrink-0"
+                  >
+                    Clean Out Database
+                  </button>
+                )}
               </div>
 
             </div>

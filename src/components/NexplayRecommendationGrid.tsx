@@ -17,6 +17,27 @@ export const NexplayRecommendationGrid: React.FC<NexplayRecommendationGridProps>
   onOpenOptions,
   onSeeAll
 }) => {
+  if (!items || items.length === 0) {
+    return (
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base sm:text-lg font-extrabold text-white font-display">
+            Library Catalog
+          </h3>
+        </div>
+        <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-8 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto text-slate-400 shadow-md">
+            <Play className="w-5 h-5" />
+          </div>
+          <h4 className="text-sm font-bold text-white">Database is Empty</h4>
+          <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+            All mock and demo data has been cleaned out. Use the Search bar above or open the Admin Control Hub to add titles with instant streaming links.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-4">
       

@@ -12,11 +12,13 @@ import {
   User, 
   Link, 
   AlertCircle, 
-  Loader2,
-  ExternalLink,
-  Flame,
-  Clapperboard,
-  ShieldCheck
+  Loader2, 
+  ExternalLink, 
+  Flame, 
+  Clapperboard, 
+  ShieldCheck,
+  Crown,
+  Lock
 } from 'lucide-react';
 import { MediaItem } from '../types/movie';
 import confetti from 'canvas-confetti';
@@ -26,13 +28,17 @@ interface SmartAutoFillModalProps {
   onClose: () => void;
   onAddMedia: (media: MediaItem) => void;
   onSelectMediaToPlay?: (media: MediaItem) => void;
+  currentUserEmail?: string | null;
+  onOpenLogin?: () => void;
 }
 
 export const SmartAutoFillModal: React.FC<SmartAutoFillModalProps> = ({
   isOpen,
   onClose,
   onAddMedia,
-  onSelectMediaToPlay
+  onSelectMediaToPlay,
+  currentUserEmail,
+  onOpenLogin
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -42,6 +48,8 @@ export const SmartAutoFillModal: React.FC<SmartAutoFillModalProps> = ({
   const [autofilledData, setAutofilledData] = useState<any | null>(null);
   const [searchResultsList, setSearchResultsList] = useState<any[]>([]);
   const [isAdded, setIsAdded] = useState(false);
+
+  const isAdmin = currentUserEmail?.trim().toLowerCase() === 'princefredkent@gmail.com';
 
   if (!isOpen) return null;
 
@@ -80,6 +88,11 @@ export const SmartAutoFillModal: React.FC<SmartAutoFillModalProps> = ({
 
   const handleSaveCatalogItem = () => {
     if (!autofilledData) return;
+
+    if (!isAdmin) {
+      setSearchError('Access Denied: Strictly only administrator princefredkent@gmail.com is authorized to publish movies.');
+      return;
+    }
 
     const newMedia: MediaItem = {
       id: autofilledData.id || Date.now(),
@@ -160,6 +173,28 @@ export const SmartAutoFillModal: React.FC<SmartAutoFillModalProps> = ({
           </button>
         </div>
 
+        {/* Admin Gate Banner */}
+        {!isAdmin && (
+          <div className="p-3.5 bg-amber-500/15 border-b border-amber-500/30 flex items-center justify-between gap-3 text-amber-200 text-xs">
+            <div className="flex items-center gap-2 font-semibold">
+              <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Admin Protected: Strictly only account <strong>princefredkent@gmail.com</strong> can add movies to the global catalog.</span>
+            </div>
+            {onOpenLogin && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenLogin();
+                }}
+                className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] shrink-0 transition-all"
+              >
+                Sign In as Admin
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Search Bar Input */}
         <div className="p-6 border-b border-white/10 bg-gradient-to-b from-black/40 to-transparent">
           <form onSubmit={handleSearchAndAutofill} className="flex flex-col sm:flex-row gap-3">
@@ -182,61 +217,39 @@ export const SmartAutoFillModal: React.FC<SmartAutoFillModalProps> = ({
               {isSearching ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Searching Backend...</span>
+                  <span>Searching TMDB...</span>
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 fill-white" />
+                  <Sparkles className="w-4 h-4" />
                   <span>Search & Auto-Fill</span>
                 </>
               )}
             </button>
           </form>
 
-          {/* Quick Title Examples */}
-          <div className="flex flex-wrap items-center gap-2 mt-3 text-xs text-slate-400">
-            <span className="text-[11px] font-semibold text-slate-500">Try quick titles:</span>
-            {['Inception', 'Spider-Man Across the Spider-Verse', 'Stranger Things', 'Dune Part Two', 'Interstellar'].map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => {
-                  setSearchQuery(t);
-                }}
-                className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-[11px] transition-colors"
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          {/* Error Message */}
+          {searchError && (
+            <div className="mt-3 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{searchError}</span>
+            </div>
+          )}
         </div>
 
-        {/* Error Alert */}
-        {searchError && (
-          <div className="m-6 p-4 rounded-2xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 shrink-0 text-rose-400" />
-            <span>{searchError}</span>
-          </div>
-        )}
-
-        {/* Auto-Filled Results Content */}
+        {/* Auto-filled Preview Section */}
         {autofilledData ? (
-          <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+          <div className="p-6 space-y-6">
             
-            {/* Multi-Year Releases Banner / Selector */}
-            {searchResultsList.length > 0 && (
-              <div className="space-y-3 p-4 rounded-2xl bg-black/60 border border-white/10">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-bold text-white">
-                    <Clapperboard className="w-4 h-4 text-amber-400" />
-                    <span>Select Specific Release Version ({searchResultsList.length} Aired Releases)</span>
-                  </div>
-                  <span className="text-[10px] text-slate-400 font-mono">Real IMDb / OMDb Metadata</span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {/* Multi-result picker */}
+            {searchResultsList.length > 1 && (
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                  Multiple matches found — Select exact title:
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-48 overflow-y-auto pr-1">
                   {searchResultsList.map((item) => {
-                    const isSelected = autofilledData.id === item.id || autofilledData.imdbId === item.imdbId;
+                    const isSelected = (autofilledData.id === item.id) || (autofilledData.imdbId === item.imdbId);
                     return (
                       <button
                         key={item.id || item.imdbId}
@@ -299,84 +312,66 @@ export const SmartAutoFillModal: React.FC<SmartAutoFillModalProps> = ({
                   <span className="px-3 py-1 rounded-full bg-rose-600 text-white text-[10px] font-bold uppercase tracking-wider">
                     {autofilledData.type === 'tv' ? 'TV Series' : 'Feature Movie'}
                   </span>
-                  <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold">
-                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                    <span>{autofilledData.voteAverage} / 10</span>
-                  </div>
-                  <span className="text-xs text-slate-400 font-mono">
-                    {autofilledData.releaseDate?.slice(0, 4)}
+                  <span className="px-3 py-1 rounded-full bg-white/10 text-slate-200 text-[10px] font-bold font-mono">
+                    {autofilledData.releaseDate}
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                    ★ {autofilledData.voteAverage} / 10
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-white/10 text-slate-300 text-[10px]">
+                    {autofilledData.contentRating}
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-white/10 text-slate-300 text-[10px]">
+                    {autofilledData.runtime} mins
                   </span>
                 </div>
 
-                <h3 className="text-2xl font-black text-white font-display">
+                <h3 className="text-xl sm:text-2xl font-black text-white font-display">
                   {autofilledData.title}
                 </h3>
 
-                <p className="text-xs text-rose-300 italic font-serif">
+                <p className="text-xs text-rose-300 italic font-medium">
                   "{autofilledData.tagline}"
                 </p>
 
-                {/* Genres */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {autofilledData.genres?.map((g: string, i: number) => (
-                    <span
-                      key={i}
-                      className="px-2.5 py-1 rounded-lg bg-white/10 border border-white/10 text-slate-200 text-xs font-medium"
-                    >
-                      {g}
-                    </span>
-                  ))}
-                </div>
+                <p className="text-xs text-slate-300 leading-relaxed line-clamp-3">
+                  {autofilledData.overview}
+                </p>
 
-                {/* Length & Director */}
-                <div className="flex items-center gap-4 text-xs text-slate-300 pt-1">
-                  <div className="flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-slate-400" />
-                    <span>{autofilledData.runtime} mins</span>
+                <div className="pt-2 border-t border-white/10 flex flex-wrap gap-x-6 gap-y-2 text-xs">
+                  <div>
+                    <span className="text-slate-400">Genres: </span>
+                    <span className="text-white font-medium">{autofilledData.genres?.join(', ')}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <User className="w-4 h-4 text-slate-400" />
-                    <span>Director: {autofilledData.director}</span>
+                  <div>
+                    <span className="text-slate-400">Director: </span>
+                    <span className="text-white font-medium">{autofilledData.director}</span>
                   </div>
                 </div>
 
-                {/* Overview Description */}
-                <div className="pt-2">
-                  <h4 className="text-xs font-bold text-slate-300 mb-1">Description (Auto-Filled):</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed bg-black/30 p-3 rounded-xl border border-white/5">
-                    {autofilledData.overview}
-                  </p>
-                </div>
+                {/* Cast */}
+                {autofilledData.cast && autofilledData.cast.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">Cast:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {autofilledData.cast.slice(0, 5).map((actor: any, idx: number) => (
+                        <span
+                          key={idx}
+                          className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-300"
+                        >
+                          {actor.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
               </div>
 
             </div>
 
-            {/* Cast Members Row */}
-            {autofilledData.cast && autofilledData.cast.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                  <User className="w-4 h-4 text-rose-400" />
-                  <span>Auto-Filled Cast ({autofilledData.cast.length} Actors):</span>
-                </h4>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                  {autofilledData.cast.map((actor: any, idx: number) => (
-                    <div key={idx} className="p-2 rounded-xl bg-black/40 border border-white/5 text-center space-y-1">
-                      <img
-                        src={actor.profilePath}
-                        alt={actor.name}
-                        className="w-12 h-12 rounded-full object-cover mx-auto border border-rose-500/30"
-                      />
-                      <span className="text-[11px] font-bold text-white block truncate">{actor.name}</span>
-                      <span className="text-[10px] text-slate-400 block truncate">{actor.character}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Free Streaming Links Box */}
-            <div className="p-4 rounded-2xl bg-black/50 border border-rose-500/30 space-y-3">
+            {/* Free HD Streaming Links Verified */}
+            <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs font-bold text-white">
                   <Flame className="w-4 h-4 text-rose-500" />
@@ -412,29 +407,48 @@ export const SmartAutoFillModal: React.FC<SmartAutoFillModalProps> = ({
             </div>
 
             {/* Add to Catalog Action Bar */}
-            <div className="flex items-center justify-between pt-4 border-t border-white/10">
-              <span className="text-xs text-slate-400">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-white/10">
+              <span className="text-xs text-slate-400 text-center sm:text-left">
                 Ready to add <strong className="text-white">{autofilledData.title}</strong> to Nexplay catalog?
               </span>
 
-              <button
-                type="button"
-                onClick={handleSaveCatalogItem}
-                disabled={isAdded}
-                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs shadow-xl shadow-emerald-950/50 flex items-center gap-2 transition-all active:scale-95"
-              >
-                {isAdded ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>Added & Opening Player!</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-white" />
-                    <span>Add to Nexplay Catalog & Watch Free</span>
-                  </>
-                )}
-              </button>
+              {isAdmin ? (
+                <button
+                  type="button"
+                  onClick={handleSaveCatalogItem}
+                  disabled={isAdded}
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs shadow-xl shadow-emerald-950/50 flex items-center gap-2 transition-all active:scale-95"
+                >
+                  {isAdded ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Added & Opening Player!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 fill-white" />
+                      <span>Publish to Nexplay Catalog</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] text-amber-300 font-medium">Publishing restricted to master admin</span>
+                  {onOpenLogin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenLogin();
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-amber-950/40 transition-all active:scale-95"
+                    >
+                      <Crown className="w-4 h-4 fill-slate-950" />
+                      <span>Sign in as Admin</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
           </div>

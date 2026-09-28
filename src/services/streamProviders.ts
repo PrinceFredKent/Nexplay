@@ -1,95 +1,31 @@
 import { MediaType, StreamSource } from '../types/movie';
 
-// Ranked dynamic streaming nodes optimized for mobile browsers & PWAs (no referrer blocking)
+// Ranked streaming engines with DoodStream VIP as the primary default
 export const STREAM_PROVIDERS: StreamSource[] = [
   {
-    id: 'vidlink-fast',
-    name: 'VidLink Ultra 4K',
-    quality: '4K Ultra HD',
+    id: 'dood-vidsrc-pm',
+    name: 'DoodStream VIP',
+    quality: '1080p / 4K UHD',
     type: 'embed',
-    serverName: 'Cloudflare Global Edge',
+    serverName: 'DoodStream / VidSrc PM High-Speed Node',
     isFast: true,
-    badge: 'Primary 4K',
-    getUrl: (tmdbId, type, season = 1, episode = 1) => {
-      if (type === 'movie') {
-        return `https://vidlink.pro/movie/${tmdbId}?primaryColor=e11d48&secondaryColor=090a0f&iconColor=ffffff&autoplay=false`;
-      }
-      return `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}?primaryColor=e11d48&secondaryColor=090a0f&iconColor=ffffff&autoplay=false`;
-    },
-  },
-  {
-    id: 'vidsrc-cc-v2',
-    name: 'VidSrc Pro Mesh',
-    quality: '1080p FHD',
-    type: 'embed',
-    serverName: 'VidSrc Ultra Cluster',
-    isFast: true,
-    badge: 'Fast Edge',
+    badge: 'Primary Default',
     getUrl: (tmdbId, type, season = 1, episode = 1, imdbId) => {
       const id = imdbId && imdbId.startsWith('tt') ? imdbId : tmdbId;
       if (type === 'movie') {
-        return `https://vidsrc.cc/v2/embed/movie/${id}`;
+        return `https://vidsrc.pm/embed/movie/${id}`;
       }
-      return `https://vidsrc.cc/v2/embed/tv/${id}/${season}/${episode}`;
+      return `https://vidsrc.pm/embed/tv/${id}/${season}/${episode}`;
     },
   },
   {
-    id: 'embedsu-direct',
-    name: 'EmbedSu HDR',
-    quality: 'HDR10 Surround',
+    id: 'doodstream-core',
+    name: 'DoodStream Multi-Host',
+    quality: '1080p / 4K UHD',
     type: 'embed',
-    serverName: 'Cloudflare Edge CDN',
+    serverName: 'DoodStream Multi-Host Node',
     isFast: true,
-    badge: 'HDR10',
-    getUrl: (tmdbId, type, season = 1, episode = 1) => {
-      if (type === 'movie') {
-        return `https://embed.su/embed/movie/${tmdbId}`;
-      }
-      return `https://embed.su/embed/tv/${tmdbId}/${season}/${episode}`;
-    },
-  },
-  {
-    id: 'smashy-stream',
-    name: 'SmashyStream Player',
-    quality: '1080p FHD',
-    type: 'embed',
-    serverName: 'Smashy Direct Cluster',
-    isFast: true,
-    badge: 'Multi-Source',
-    getUrl: (tmdbId, type, season = 1, episode = 1) => {
-      if (type === 'movie') {
-        return `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}`;
-      }
-      return `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}&season=${season}&episode=${episode}`;
-    },
-  },
-  {
-    id: 'native-direct-hd',
-    name: 'Native Direct HD Player',
-    quality: '1080p Native MP4',
-    type: 'direct',
-    serverName: 'Direct CDN Storage Stream',
-    isFast: true,
-    badge: 'Guaranteed Play',
-    getUrl: (tmdbId, type, season = 1, episode = 1) => {
-      const samples = [
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4'
-      ];
-      const index = Math.abs((Number(tmdbId) || 1) + season + episode) % samples.length;
-      return samples[index];
-    }
-  },
-  {
-    id: 'superembed-pro',
-    name: 'SuperEmbed 4K Multi',
-    quality: '4K Ultra HD',
-    type: 'embed',
-    serverName: 'Akamai Global Cloud CDN',
-    isFast: true,
-    badge: '4K Multi',
+    badge: 'Multi-Host',
     getUrl: (tmdbId, type, season = 1, episode = 1, imdbId) => {
       const id = imdbId && imdbId.startsWith('tt') ? imdbId : tmdbId;
       const isImdb = Boolean(imdbId && imdbId.startsWith('tt'));
@@ -104,13 +40,44 @@ export const STREAM_PROVIDERS: StreamSource[] = [
     },
   },
   {
-    id: 'twoembed-stream',
-    name: '2Embed Dedicated Player',
+    id: 'embedsu-direct',
+    name: 'EmbedSu Ultra HD',
+    quality: '1080p / 4K UHD',
+    type: 'embed',
+    serverName: 'Cloudflare Edge CDN',
+    isFast: true,
+    badge: 'Edge CDN',
+    getUrl: (tmdbId, type, season = 1, episode = 1) => {
+      if (type === 'movie') {
+        return `https://embed.su/embed/movie/${tmdbId}`;
+      }
+      return `https://embed.su/embed/tv/${tmdbId}/${season}/${episode}`;
+    },
+  },
+  {
+    id: 'vidsrc-xyz',
+    name: 'VidSrc Global XYZ',
     quality: '1080p FHD',
     type: 'embed',
-    serverName: 'Dedicated Stream Core',
+    serverName: 'VidSrc Direct Mesh',
+    isFast: true,
+    badge: 'Global CDN',
+    getUrl: (tmdbId, type, season = 1, episode = 1, imdbId) => {
+      const id = imdbId && imdbId.startsWith('tt') ? imdbId : tmdbId;
+      if (type === 'movie') {
+        return `https://vidsrc.xyz/embed/movie/${id}`;
+      }
+      return `https://vidsrc.xyz/embed/tv/${id}/${season}/${episode}`;
+    },
+  },
+  {
+    id: 'twoembed-stream',
+    name: '2Embed Core',
+    quality: '1080p FHD',
+    type: 'embed',
+    serverName: '2Embed Dedicated Player',
     isFast: false,
-    badge: 'Subtitles',
+    badge: 'Multi-Lang',
     getUrl: (tmdbId, type, season = 1, episode = 1, imdbId) => {
       const id = imdbId && imdbId.startsWith('tt') ? imdbId : tmdbId;
       if (type === 'movie') {
@@ -120,26 +87,25 @@ export const STREAM_PROVIDERS: StreamSource[] = [
     },
   },
   {
-    id: 'vidsrc-xyz',
-    name: 'VidSrc Global Node',
+    id: 'autoembed-co',
+    name: 'AutoEmbed CO',
     quality: '1080p FHD',
     type: 'embed',
-    serverName: 'VidSrc Direct Mesh',
+    serverName: 'AutoEmbed Fast Node',
     isFast: true,
-    badge: 'Global Node',
-    getUrl: (tmdbId, type, season = 1, episode = 1, imdbId) => {
-      const id = imdbId && imdbId.startsWith('tt') ? imdbId : tmdbId;
+    badge: 'Fast Node',
+    getUrl: (tmdbId, type, season = 1, episode = 1) => {
       if (type === 'movie') {
-        return `https://vidsrc.xyz/embed/movie/${id}`;
+        return `https://autoembed.co/movie/tmdb/${tmdbId}`;
       }
-      return `https://vidsrc.xyz/embed/tv/${id}/${season}/${episode}`;
+      return `https://autoembed.co/tv/tmdb/${tmdbId}-${season}-${episode}`;
     },
   }
 ];
 
 export const SAMPLE_DIRECT_STREAMS = [
-  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
   'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
   'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
   'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
   'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',

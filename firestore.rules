@@ -12,11 +12,11 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // STRICT ADMIN: princefredkent@gmail.com and taxwiseplatform@gmail.com
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email != null && (
-        request.auth.token.email.lower() == 'taxwiseplatform@gmail.com' ||
-        request.auth.token.email.lower() == 'princefredkent@gmail.com'
-      );
+      return isSignedIn() && request.auth.token.email != null &&
+        (request.auth.token.email.lower() == 'princefredkent@gmail.com' ||
+         request.auth.token.email.lower() == 'taxwiseplatform@gmail.com');
     }
 
     // Connection Healthcheck Document (mandated by firebase skill)
@@ -45,16 +45,16 @@ service cloud.firestore {
       }
     }
 
-    // Global Movie & TV Catalog
+    // Global Movie & TV Catalog - Publicly readable, admin writable
     match /catalog/{mediaId} {
       allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow create, update, delete: if isAdmin();
     }
 
-    // Deleted movies blacklist / records
+    // Deleted movies blacklist / records - Publicly readable, admin writable
     match /deleted_movies/{mediaId} {
       allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow create, update, delete: if isAdmin();
     }
 
     // System configuration & stats

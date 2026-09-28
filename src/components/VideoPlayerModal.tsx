@@ -18,16 +18,19 @@ import {
   Minimize, 
   ChevronRight, 
   Wifi, 
-  Sliders, 
   Volume2, 
   VolumeX, 
   AlertCircle, 
   Film, 
   ExternalLink, 
-  ShieldCheck 
+  ShieldCheck,
+  Flame,
+  Clapperboard,
+  MonitorPlay,
+  ChevronDown
 } from 'lucide-react';
 import { Episode, MediaItem, Season, StreamSource } from '../types/movie';
-import { STREAM_PROVIDERS } from '../services/streamProviders';
+import { STREAM_PROVIDERS, SAMPLE_DIRECT_STREAMS } from '../services/streamProviders';
 import { saveWatchProgress, getWatchHistory } from '../services/storageService';
 import { fetchTvSeasonEpisodes } from '../services/catalogService';
 
@@ -39,6 +42,8 @@ interface VideoPlayerModalProps {
   onClose: () => void;
   activeProfileId: string;
 }
+
+type PlayerMode = 'embed' | 'trailer' | 'native';
 
 export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   media: initialMedia,
@@ -52,42 +57,61 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   const [currentSeason, setCurrentSeason] = useState(initialSeason);
   const [currentEpisode, setCurrentEpisode] = useState(initialEpisode);
   
-  // Default to VidLink Ultra 4K (unblocked, mobile-responsive, no referrer check)
+  // Player Mode: 'embed' (streaming nodes), 'trailer' (official 4K trailer), 'native' (HTML5 direct player)
+  const [playerMode, setPlayerMode] = useState<PlayerMode>('embed');
   const [providerIndex, setProviderIndex] = useState(0);
   const selectedProvider = STREAM_PROVIDERS[providerIndex] || STREAM_PROVIDERS[0];
   
-  // Player Loading state & timeout recovery
+  // UI & Drawer States
   const [isStreamLoading, setIsStreamLoading] = useState(true);
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
+  const [isServerDropdownOpen, setIsServerDropdownOpen] = useState(false);
   const [isSeasonDrawerOpen, setIsSeasonDrawerOpen] = useState(false);
   const [loadingDrawerEpisodes, setLoadingDrawerEpisodes] = useState(false);
-  const [useNativePlayer, setUseNativePlayer] = useState(false);
+  const [showQuickBar, setShowQuickBar] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const serverDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Auto-disappearing UI Controls state (disappears automatically after 3.5s)
-  const [showBottomQuickBar, setShowBottomQuickBar] = useState(true);
-  const [showPlayerHeader, setShowPlayerHeader] = useState(true);
-  const controlsTimeoutRef = useRef<any>(null);
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (serverDropdownRef.current && !serverDropdownRef.current.contains(event.target as Node)) {
+        setIsServerDropdownOpen(false);
+      }
+    };
+    if (isServerDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isServerDropdownOpen]);
+
+  // TV Episodes State
+  const [episodesList, setEpisodesList] = useState<Episode[]>([]);
+  const [nextEpisode, setNextEpisode] = useState<Episode | null>(null);
 
   // Direct Native Video states
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(initialTime || 0);
   const [duration, setDuration] = useState(media.runtime ? media.runtime * 60 : 7200);
-
-  // Resume state & Toast
-  const [resumeToast, setResumeToast] = useState<{ time: number; visible: boolean } | null>(null);
-  const hasInitializedResume = useRef(false);
+  const [nativePlayError, setNativePlayError] = useState(false);
+  const [sampleStreamIndex, setSampleStreamIndex] = useState(0);
 
   // Next Episode Countdown state
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState<number | null>(null);
   const [isCountdownCancelled, setIsCountdownCancelled] = useState(false);
   const countdownIntervalRef = useRef<any>(null);
-
+  const quickBarTimerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Handle stream provider URL
+  // Check if upcoming / unreleased title (e.g. 2025/2026)
+  const releaseYear = parseInt(media.releaseDate?.slice(0, 4) || '2024', 10);
+  const isUpcomingTitle = releaseYear >= 2026;
+
+  // Compute embed URL
   const embedUrl = selectedProvider.getUrl(
     media.tmdbId,
     media.type,
@@ -96,532 +120,478 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
     media.imdbId
   );
 
-  // Auto-hide bottom quick actions & controls after 3.5s of idle
-  const resetControlsTimer = () => {
-    setShowBottomQuickBar(true);
-    setShowPlayerHeader(true);
+  // Official YouTube trailer embed URL
+  const trailerKey = media.trailerKey || 'cqGjhVJWtEg';
+  const youtubeTrailerUrl = `https://www.youtube-nocookie.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`;
 
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-    }
-
-    controlsTimeoutRef.current = setTimeout(() => {
-      setShowBottomQuickBar(false);
-      setShowPlayerHeader(false);
-    }, 3500);
+  // Auto-hide bottom quick bar after 4s idle
+  const resetQuickBarTimer = () => {
+    setShowQuickBar(true);
+    if (quickBarTimerRef.current) clearTimeout(quickBarTimerRef.current);
+    quickBarTimerRef.current = setTimeout(() => {
+      setShowQuickBar(false);
+    }, 4000);
   };
 
-  // Trigger controls timer on mount, server switch, or episode switch
   useEffect(() => {
-    resetControlsTimer();
+    resetQuickBarTimer();
     return () => {
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      if (quickBarTimerRef.current) clearTimeout(quickBarTimerRef.current);
     };
-  }, [providerIndex, currentSeason, currentEpisode, useNativePlayer]);
+  }, [providerIndex, playerMode]);
 
-  // When switching servers, reset loader state
+  // Load TV Episodes when season changes
   useEffect(() => {
-    setIsStreamLoading(true);
-    const t = setTimeout(() => {
-      setIsStreamLoading(false);
-    }, 3000);
-    return () => clearTimeout(t);
-  }, [providerIndex, currentSeason, currentEpisode, useNativePlayer]);
+    if (media.type !== 'tv') return;
 
-  // Load Season Episodes in Player
-  const ensureSeasonEpisodesLoaded = async (seasonNum: number) => {
-    const sData = media.seasons?.find(s => s.seasonNumber === seasonNum);
-    if (sData && sData.episodes && sData.episodes.length > 0) return;
-
+    let isMounted = true;
     setLoadingDrawerEpisodes(true);
-    try {
-      const epData = await fetchTvSeasonEpisodes(
-        media.tmdbId,
-        seasonNum,
-        media.cleanTitle || media.title,
-        media.backdropPath,
-        sData?.episodeCount
-      );
 
-      setMedia(prev => {
-        const seasons = prev.seasons ? [...prev.seasons] : [];
-        const sIndex = seasons.findIndex(s => s.seasonNumber === seasonNum);
-        if (sIndex >= 0) {
-          seasons[sIndex] = {
-            ...seasons[sIndex],
-            episodes: epData.episodes,
-            name: epData.seasonName || seasons[sIndex].name
-          };
-        } else {
-          seasons.push({
-            seasonNumber: seasonNum,
-            name: epData.seasonName || `Season ${seasonNum}`,
-            overview: epData.seasonOverview || '',
-            posterPath: prev.posterPath,
-            episodeCount: epData.episodes.length,
-            episodes: epData.episodes
-          });
-        }
-        return { ...prev, seasons };
+    fetchTvSeasonEpisodes(media.tmdbId, currentSeason, media.title)
+      .then(res => {
+        if (!isMounted) return;
+        const list = res?.episodes || [];
+        setEpisodesList(list);
+        setLoadingDrawerEpisodes(false);
+
+        const next = list.find((e: Episode) => e.episodeNumber === currentEpisode + 1);
+        setNextEpisode(next || null);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setLoadingDrawerEpisodes(false);
       });
-    } catch (err) {
-      console.error('Failed to load season episodes for player:', err);
-    } finally {
-      setLoadingDrawerEpisodes(false);
-    }
-  };
-
-  useEffect(() => {
-    if (media.type === 'tv') {
-      ensureSeasonEpisodesLoaded(currentSeason);
-    }
-  }, [currentSeason]);
-
-  // TV Seasons & Episodes list
-  const activeSeasonData: Season | undefined = media.seasons?.find(s => s.seasonNumber === currentSeason) || media.seasons?.[0];
-  const activeEpisodeData: Episode | undefined = activeSeasonData?.episodes?.find(e => e.episodeNumber === currentEpisode) || activeSeasonData?.episodes?.[0];
-
-  // Helper: Find next episode in series
-  const getNextEpisodeInfo = () => {
-    if (media.type !== 'tv') return null;
-    const currentSeasonEpisodes = activeSeasonData?.episodes || [];
-    const nextInSameSeason = currentSeasonEpisodes.find(e => e.episodeNumber === currentEpisode + 1);
-    if (nextInSameSeason) {
-      return {
-        season: currentSeason,
-        episode: currentEpisode + 1,
-        name: nextInSameSeason.name,
-        stillPath: nextInSameSeason.stillPath || media.backdropPath,
-        overview: nextInSameSeason.overview,
-        runtime: nextInSameSeason.runtime || 45
-      };
-    }
-    // Check next season
-    const nextSeasonNum = currentSeason + 1;
-    const nextSeason = media.seasons?.find(s => s.seasonNumber === nextSeasonNum);
-    if (nextSeason) {
-      const firstEp = nextSeason.episodes?.[0];
-      return {
-        season: nextSeasonNum,
-        episode: 1,
-        name: firstEp?.name || `Season ${nextSeasonNum} Episode 1`,
-        stillPath: firstEp?.stillPath || nextSeason.posterPath || media.backdropPath,
-        overview: firstEp?.overview || '',
-        runtime: firstEp?.runtime || 45
-      };
-    }
-    // Generated next fallback
-    const currentMaxEpisodes = activeSeasonData?.episodeCount || 10;
-    if (currentEpisode < currentMaxEpisodes) {
-      return {
-        season: currentSeason,
-        episode: currentEpisode + 1,
-        name: `Episode ${currentEpisode + 1}`,
-        stillPath: media.backdropPath,
-        overview: `Continue to Season ${currentSeason} Episode ${currentEpisode + 1}`,
-        runtime: 45
-      };
-    }
-    return null;
-  };
-
-  const nextEpisode = getNextEpisodeInfo();
-
-  // Switch to Next Episode
-  const goToNextEpisode = () => {
-    if (!nextEpisode) return;
-    setCurrentSeason(nextEpisode.season);
-    setCurrentEpisode(nextEpisode.episode);
-    setCurrentTime(0);
-    setNextEpisodeCountdown(null);
-    setIsCountdownCancelled(false);
-  };
-
-  // Switch between servers easily
-  const switchNextServer = (targetIdx?: number) => {
-    const nextIdx = targetIdx !== undefined ? targetIdx : (providerIndex + 1) % STREAM_PROVIDERS.length;
-    setProviderIndex(nextIdx);
-    setUseNativePlayer(STREAM_PROVIDERS[nextIdx]?.type === 'direct');
-    resetControlsTimer();
-  };
-
-  // Reset when episode changes
-  useEffect(() => {
-    setNextEpisodeCountdown(null);
-    setIsCountdownCancelled(false);
-  }, [currentSeason, currentEpisode]);
-
-  // Initialize Resume from previous watch position
-  useEffect(() => {
-    if (hasInitializedResume.current) return;
-    hasInitializedResume.current = true;
-
-    let savedResumeTime = initialTime;
-    if (savedResumeTime === undefined) {
-      const historyList = getWatchHistory(activeProfileId);
-      const saved = historyList.find(h => {
-        if (h.mediaId !== media.id) return false;
-        if (media.type === 'tv') {
-          return (h.season || 1) === currentSeason && (h.episode || 1) === currentEpisode;
-        }
-        return true;
-      });
-
-      if (saved && saved.currentTime && saved.currentTime > 15 && (!saved.duration || saved.currentTime < saved.duration - 30)) {
-        savedResumeTime = saved.currentTime;
-      }
-    }
-
-    if (savedResumeTime && savedResumeTime > 15) {
-      setCurrentTime(savedResumeTime);
-      setResumeToast({ time: savedResumeTime, visible: true });
-      const timer = setTimeout(() => {
-        setResumeToast(prev => prev ? { ...prev, visible: false } : null);
-      }, 7000);
-      return () => clearTimeout(timer);
-    }
-  }, [activeProfileId, currentEpisode, currentSeason, initialTime, media.id, media.type]);
-
-  // Countdown timer interval (10 -> 0)
-  useEffect(() => {
-    if (nextEpisodeCountdown === null) {
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      return;
-    }
-
-    if (nextEpisodeCountdown <= 0) {
-      if (nextEpisode) {
-        goToNextEpisode();
-      }
-      setNextEpisodeCountdown(null);
-      return;
-    }
-
-    countdownIntervalRef.current = setInterval(() => {
-      setNextEpisodeCountdown(c => (c !== null ? c - 1 : null));
-    }, 1000);
 
     return () => {
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      isMounted = false;
     };
-  }, [nextEpisodeCountdown, nextEpisode]);
+  }, [media.tmdbId, media.type, media.title, currentSeason, currentEpisode]);
 
-  // Save watch progress to localStorage
-  useEffect(() => {
-    const progressPercent = Math.round((currentTime / (duration || 1)) * 100);
-    saveWatchProgress(activeProfileId, {
-      mediaId: media.id,
-      mediaType: media.type,
-      title: media.title,
-      posterPath: media.posterPath,
-      backdropPath: media.backdropPath,
-      season: media.type === 'tv' ? currentSeason : undefined,
-      episode: media.type === 'tv' ? currentEpisode : undefined,
-      progress: Math.min(100, Math.max(5, progressPercent)),
-      currentTime: Math.round(currentTime || 120),
-      duration: Math.round(duration),
-      lastWatchedAt: Date.now()
-    });
-  }, [currentTime, duration, media, currentSeason, currentEpisode, activeProfileId]);
-
-  // Keyboard shortcuts
+  // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      switch (e.code) {
-        case 'Escape':
-          onClose();
-          break;
-        case 'KeyF':
-          e.preventDefault();
-          toggleFullscreen();
-          break;
-        case 'KeyS':
-          e.preventDefault();
-          switchNextServer();
-          break;
-        case 'KeyN':
-          if (nextEpisode) {
-            e.preventDefault();
-            goToNextEpisode();
-          }
-          break;
+      if (e.key === 'Escape') {
+        if (isServerModalOpen) setIsServerModalOpen(false);
+        else if (isSeasonDrawerOpen) setIsSeasonDrawerOpen(false);
+        else onClose();
+      } else if (e.key === ' ' && playerMode === 'native' && videoRef.current) {
+        e.preventDefault();
+        toggleNativePlay();
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      } else if (e.key === 's' || e.key === 'S') {
+        handleNextServer();
+      } else if (e.key === 'm' || e.key === 'M') {
+        if (videoRef.current) {
+          videoRef.current.muted = !videoRef.current.muted;
+          setIsMuted(videoRef.current.muted);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextEpisode, providerIndex]);
+  }, [isServerModalOpen, isSeasonDrawerOpen, playerMode, isPlaying]);
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
+  // Next Server Switcher
+  const handleNextServer = () => {
+    setPlayerMode('embed');
+    setIsStreamLoading(true);
+    setProviderIndex(prev => (prev + 1) % STREAM_PROVIDERS.length);
+  };
+
+  // Switch to specific server
+  const handleSelectServer = (idx: number) => {
+    setPlayerMode('embed');
+    setIsStreamLoading(true);
+    setProviderIndex(idx);
+    setIsServerModalOpen(false);
+  };
+
+  // Switch to YouTube 4K Trailer Mode
+  const handleSelectTrailer = () => {
+    setPlayerMode('trailer');
+    setIsStreamLoading(true);
+    setIsServerModalOpen(false);
+  };
+
+  // Switch to Native Player Mode
+  const handleSelectNative = () => {
+    setPlayerMode('native');
+    setIsStreamLoading(false);
+    setIsServerModalOpen(false);
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {
+          setIsPlaying(false);
+          setNativePlayError(true);
+        });
+      }
+    }, 200);
+  };
+
+  // Native Play / Pause Toggle
+  const toggleNativePlay = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
     } else {
-      document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
+      videoRef.current.play().then(() => {
+        setIsPlaying(true);
+        setNativePlayError(false);
+      }).catch(err => {
+        console.warn('Native video autoplay blocked, muting first:', err);
+        if (videoRef.current) {
+          videoRef.current.muted = true;
+          setIsMuted(true);
+          videoRef.current.play().then(() => setIsPlaying(true));
+        }
+      });
     }
   };
 
+  // Fullscreen Toggle
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  };
+
+  // Go to next episode
+  const goToNextEpisode = () => {
+    if (!nextEpisode) return;
+    setCurrentEpisode(nextEpisode.episodeNumber);
+    setIsCountdownCancelled(true);
+    setNextEpisodeCountdown(null);
+    setIsStreamLoading(true);
+  };
+
+  // Format seconds to mm:ss or hh:mm:ss
   const formatTime = (secs: number) => {
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
     const s = Math.floor(secs % 60);
-    if (h > 0) {
-      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
-    return `${m}:${s.toString().padStart(2, '0')}`;
+    if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
+
+  const displayTitle = media.title.includes('(') 
+    ? media.title 
+    : (media.releaseDate ? `${media.title} (${media.releaseDate.slice(0, 4)})` : media.title);
+
+  const directVideoSource = media.directStreamUrl || SAMPLE_DIRECT_STREAMS[sampleStreamIndex] || SAMPLE_DIRECT_STREAMS[0];
 
   return (
     <div 
       ref={containerRef}
-      onMouseMove={resetControlsTimer}
-      onTouchStart={resetControlsTimer}
-      onClick={resetControlsTimer}
-      className="fixed inset-0 z-50 bg-black flex flex-col justify-between overflow-hidden select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black overflow-hidden select-none"
     >
-      
-      {/* Top Persistent Glass Player Control Bar (Auto-hides with graceful transition) */}
-      <header className={`absolute top-0 left-0 right-0 z-40 p-2.5 sm:p-4 bg-gradient-to-b from-black/95 via-black/80 to-transparent backdrop-blur-md border-b border-white/[0.08] flex items-center justify-between pointer-events-auto transition-all duration-400 ${
-        showPlayerHeader || isServerModalOpen || isSeasonDrawerOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
-      }`}>
+      {/* PERSISTENT TOP HEADER CONTROLS BAR (Always Visible) */}
+      <div className="absolute top-0 inset-x-0 z-40 px-4 sm:px-6 py-3 bg-gradient-to-b from-black/95 via-black/75 to-transparent backdrop-blur-md flex items-center justify-between border-b border-white/5 shadow-2xl">
         
-        {/* Left: Exit & Title info */}
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+        {/* Left: Close & Title Info */}
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onClose}
-            aria-label="Exit Cinema Player"
-            className="p-2 sm:p-2.5 rounded-2xl bg-white/15 hover:bg-rose-600 text-white shadow-lg backdrop-blur-xl border border-white/20 transition-all hover:scale-105 active:scale-95 shrink-0 focus:outline-none"
-            title="Exit Player (Esc)"
+            aria-label="Close Player"
+            className="p-2.5 rounded-2xl bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-90"
           >
-            <X className="w-5 h-5 stroke-[2.5]" />
+            <X className="w-5 h-5" />
           </button>
-          
+
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider">
-              <span className="text-rose-400">
-                {media.type === 'movie' ? 'Movie' : `S${currentSeason} · E${currentEpisode}`}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                {playerMode === 'trailer' ? '4K TRAILER' : playerMode === 'native' ? 'NATIVE 1080P' : selectedProvider.quality}
               </span>
-              <span aria-hidden="true" className="text-slate-600">·</span>
-              <span className="text-emerald-400 font-mono-data text-[10px]">
-                {useNativePlayer ? 'Native 1080p' : selectedProvider.quality}
-              </span>
+              {media.type === 'tv' && (
+                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  S{currentSeason} : E{currentEpisode}
+                </span>
+              )}
             </div>
-            <h2 className="text-xs sm:text-sm md:text-base font-bold text-white tracking-tight truncate max-w-[120px] xs:max-w-[180px] sm:max-w-md md:max-w-xl">
-              {media.cleanTitle || media.title} {media.type === 'tv' && activeEpisodeData ? `— ${activeEpisodeData.name}` : ''}
+            <h2 className="text-sm sm:text-base font-black text-white truncate max-w-xs sm:max-w-md">
+              {displayTitle}
             </h2>
           </div>
         </div>
 
-        {/* Right: Quick Action Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          
-          {/* Server Switcher Modal Trigger */}
+        {/* Center: Combined Server & Quality Dropdown */}
+        <div className="relative" ref={serverDropdownRef}>
           <button
-            onClick={() => setIsServerModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold backdrop-blur-md border border-white/15 shadow-sm transition-all active:scale-95 focus:outline-none"
-            title="Switch Streaming Server"
+            type="button"
+            onClick={() => setIsServerDropdownOpen(prev => !prev)}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-2xl bg-black/80 hover:bg-black/95 text-white backdrop-blur-xl border border-white/15 shadow-xl transition-all active:scale-95 cursor-pointer"
           >
-            <Server className="w-3.5 h-3.5 text-rose-400" />
-            <span className="hidden md:inline">{useNativePlayer ? 'Native Player' : selectedProvider.name}</span>
-            <span className="md:hidden font-mono-data">{useNativePlayer ? 'Native' : `S${providerIndex + 1}`}</span>
+            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            <span className="text-xs font-bold text-slate-200">
+              {playerMode === 'trailer' 
+                ? 'Official 4K Trailer' 
+                : playerMode === 'native' 
+                  ? 'Native Player' 
+                  : selectedProvider.name}
+            </span>
+            <span className="hidden sm:inline-block text-[10px] font-mono font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+              {playerMode === 'trailer' ? '4K UHD' : playerMode === 'native' ? '1080P' : selectedProvider.quality.split(' ')[0]}
+            </span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isServerDropdownOpen ? 'rotate-180 text-rose-400' : ''}`} />
           </button>
 
-          {/* Quick 1-Click Server Cycle */}
-          <button
-            onClick={() => switchNextServer()}
-            title="Next Server (Key S)"
-            className="p-1.5 sm:p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white border border-white/10 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
+          {/* Combined Server Dropdown Menu */}
+          {isServerDropdownOpen && (
+            <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-72 sm:w-80 rounded-2xl bg-[#0d0f17]/95 backdrop-blur-2xl border border-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.8)] p-2 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-white/10">
+              
+              {/* Primary Streaming Servers */}
+              <div className="p-1 space-y-1">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold px-2 py-1">
+                  Streaming Nodes
+                </div>
+                {STREAM_PROVIDERS.map((provider, idx) => {
+                  const isCurrent = playerMode === 'embed' && providerIndex === idx;
+                  return (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      onClick={() => {
+                        handleSelectServer(idx);
+                        setIsServerDropdownOpen(false);
+                      }}
+                      className={`w-full p-2 rounded-xl text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                        isCurrent 
+                          ? 'bg-rose-600/20 border border-rose-500/40 text-white shadow-lg shadow-rose-950/40' 
+                          : 'hover:bg-white/5 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCurrent ? 'bg-rose-500 shadow-sm shadow-rose-500' : 'bg-slate-600'}`} />
+                        <div className="min-w-0">
+                          <span className={`text-xs font-bold block truncate ${isCurrent ? 'text-rose-300' : 'text-slate-200'}`}>
+                            {provider.name}
+                          </span>
+                          <span className="text-[10px] text-slate-500 block truncate font-mono">
+                            {provider.serverName}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] font-mono font-bold text-slate-400 bg-white/5 px-1.5 py-0.5 rounded">
+                          {provider.quality.split(' ')[0]}
+                        </span>
+                        {isCurrent && <Check className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
 
-          {/* TV Next Episode Button */}
-          {media.type === 'tv' && nextEpisode && (
-            <button
-              onClick={() => setNextEpisodeCountdown(10)}
-              title={`Next: S${nextEpisode.season}:E${nextEpisode.episode} ${nextEpisode.name}`}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 transition-all active:scale-95 focus:outline-none"
-            >
-              <SkipForward className="w-3.5 h-3.5 fill-white" />
-              <span className="hidden sm:inline">Next Episode</span>
-              <span className="sm:hidden font-mono-data">Next</span>
-            </button>
+              {/* Alternative Playback Modes */}
+              <div className="p-1 pt-2 space-y-1">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold px-2 py-1">
+                  Alternative Players
+                </div>
+
+                {/* 4K Trailer */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectTrailer();
+                    setIsServerDropdownOpen(false);
+                  }}
+                  className={`w-full p-2 rounded-xl text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                    playerMode === 'trailer'
+                      ? 'bg-gradient-to-r from-red-600/30 to-rose-600/30 border border-red-500/40 text-white' 
+                      : 'hover:bg-white/5 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Clapperboard className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-slate-200 block">Official 4K Trailer</span>
+                      <span className="text-[10px] text-slate-500 block font-mono">Direct 4K Cinema YouTube Stream</span>
+                    </div>
+                  </div>
+                  {playerMode === 'trailer' && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                </button>
+
+                {/* Native HTML5 Player */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectNative();
+                    setIsServerDropdownOpen(false);
+                  }}
+                  className={`w-full p-2 rounded-xl text-left flex items-center justify-between gap-2 transition-all cursor-pointer ${
+                    playerMode === 'native'
+                      ? 'bg-emerald-600/20 border border-emerald-500/40 text-white' 
+                      : 'hover:bg-white/5 text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <MonitorPlay className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-slate-200 block">Native HTML5 Player</span>
+                      <span className="text-[10px] text-slate-500 block font-mono">Hardware Accelerated Direct Video</span>
+                    </div>
+                  </div>
+                  {playerMode === 'native' && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                </button>
+
+              </div>
+
+            </div>
           )}
+        </div>
 
-          {/* TV Episode Drawer Trigger */}
-          {media.type === 'tv' && media.seasons && media.seasons.length > 0 && (
+        {/* Right: TV Episodes, Next Server, Fullscreen */}
+        <div className="flex items-center gap-2">
+          
+          {/* TV Episodes Drawer Trigger */}
+          {media.type === 'tv' && (
             <button
               onClick={() => setIsSeasonDrawerOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 text-xs font-semibold backdrop-blur-md border border-indigo-500/40 transition-all active:scale-95 focus:outline-none"
-              title="View Episodes List"
+              className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold flex items-center gap-1.5 backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
             >
-              <Layers className="w-3.5 h-3.5 text-indigo-300" />
+              <Tv className="w-4 h-4" />
               <span className="hidden sm:inline">Episodes</span>
             </button>
           )}
 
+          {/* Quick Next Server Button */}
+          <button
+            onClick={handleNextServer}
+            title="Next Server (Shortcut: S)"
+            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
-            title="Toggle Fullscreen (Key F)"
-            className="p-1.5 sm:p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10 transition-colors"
+            title="Toggle Fullscreen (Shortcut: F)"
+            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
           >
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           </button>
+
         </div>
-      </header>
 
-      {/* Main Video Viewport */}
-      <main className="relative w-full h-full flex items-center justify-center bg-black">
+      </div>
+
+      {/* MAIN VIDEO DISPLAY CONTAINER */}
+      <div className="relative w-full h-full flex items-center justify-center bg-black">
         
-        {/* Resume Toast Notification */}
-        {resumeToast && resumeToast.visible && (
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-2xl bg-black/95 backdrop-blur-xl border border-rose-500/50 text-white shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300">
-            <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-            <span className="text-xs font-medium">
-              Resumed from <strong className="font-mono-data text-rose-300">{formatTime(resumeToast.time)}</strong>
-            </span>
-            <button
-              onClick={() => {
-                setCurrentTime(0);
-                if (videoRef.current) videoRef.current.currentTime = 0;
-                setResumeToast(null);
-              }}
-              className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] font-semibold text-slate-200 hover:text-white transition-colors"
-            >
-              Start Over ↺
-            </button>
-            <button
-              onClick={() => setResumeToast(null)}
-              className="p-1 hover:bg-white/10 rounded-full text-slate-400 hover:text-white"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* Next Episode Floating Countdown Card */}
-        {nextEpisodeCountdown !== null && nextEpisode && (
-          <div className="absolute bottom-6 right-4 sm:right-8 z-40 max-w-sm w-[calc(100vw-2rem)] sm:w-84 rounded-3xl bg-black/95 backdrop-blur-2xl border border-rose-500/50 p-4 shadow-2xl space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="relative w-6 h-6 flex items-center justify-center">
-                  <div className="w-6 h-6 rounded-full border-2 border-rose-500/30 border-t-rose-500 animate-spin" />
-                  <span className="absolute text-[11px] font-mono-data font-extrabold text-rose-400">
-                    {nextEpisodeCountdown}
-                  </span>
-                </div>
-                <span className="text-xs font-bold text-white uppercase tracking-wider">
-                  Next Episode in {nextEpisodeCountdown}s
-                </span>
-              </div>
-
-              <button
-                onClick={() => {
-                  setIsCountdownCancelled(true);
-                  setNextEpisodeCountdown(null);
-                }}
-                className="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                title="Dismiss countdown"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Next Episode Preview Card */}
-            <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-white/[0.05] border border-white/10">
-              <div className="w-16 h-11 rounded-xl overflow-hidden bg-slate-800 shrink-0 relative">
-                <img
-                  src={nextEpisode.stillPath || media.backdropPath}
-                  alt={nextEpisode.name}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="min-w-0 space-y-0.5">
-                <span className="text-[10px] font-mono-data text-rose-400 font-bold block">
-                  Season {nextEpisode.season} · Episode {nextEpisode.episode}
-                </span>
-                <h5 className="text-xs font-semibold text-white truncate">
-                  {nextEpisode.name}
-                </h5>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                onClick={goToNextEpisode}
-                className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-600/30 active:scale-98 transition-all"
-              >
-                <Play className="w-3.5 h-3.5 fill-white" />
-                <span>Play Now</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsCountdownCancelled(true);
-                  setNextEpisodeCountdown(null);
-                }}
-                className="py-2.5 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 hover:text-white text-xs font-medium transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Video Mode 1: Native Direct HTML5 Video Player */}
-        {useNativePlayer || selectedProvider.type === 'direct' ? (
-          <div className="relative w-full h-full flex items-center justify-center bg-black group">
-            <video
-              ref={videoRef}
-              src={media.directStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'}
-              autoPlay
-              playsInline
-              controls={false}
-              onLoadedData={() => {
-                setIsStreamLoading(false);
-                if (currentTime > 0 && videoRef.current) {
-                  videoRef.current.currentTime = currentTime;
-                }
-              }}
-              onTimeUpdate={() => {
-                if (videoRef.current) {
-                  setCurrentTime(videoRef.current.currentTime);
-                  setDuration(videoRef.current.duration || 7200);
-                }
-              }}
-              onEnded={() => {
-                if (nextEpisode) goToNextEpisode();
-              }}
-              className="w-full h-full object-contain"
+        {/* MODE 1: OFFICIAL 4K CINEMA TRAILER PLAYER (Always 100% playable for all movies & series) */}
+        {playerMode === 'trailer' && (
+          <div className="relative w-full h-full flex items-center justify-center bg-black">
+            <iframe
+              key={`trailer-${media.tmdbId}-${trailerKey}`}
+              src={youtubeTrailerUrl}
+              title={`${media.title} Official 4K Trailer`}
+              onLoad={() => setIsStreamLoading(false)}
+              className="w-full h-full border-0 bg-black"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+              allowFullScreen
             />
+          </div>
+        )}
 
-            {/* Custom Cinema Video Controls Overlay (Auto-hides with graceful animation) */}
-            <div className={`absolute bottom-4 inset-x-4 sm:inset-x-8 z-30 p-3 rounded-2xl glass-dock flex items-center justify-between gap-4 transition-all duration-400 shadow-2xl ${
-              showBottomQuickBar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
+        {/* MODE 2: NATIVE HTML5 DIRECT PLAYER */}
+        {playerMode === 'native' && (
+          <div className="relative w-full h-full flex items-center justify-center bg-black group">
+            {nativePlayError ? (
+              <div className="relative z-20 flex flex-col items-center justify-center p-6 text-center max-w-md space-y-4">
+                <div className="w-16 h-16 rounded-3xl bg-rose-600/20 border border-rose-500/30 flex items-center justify-center text-rose-500 shadow-xl">
+                  <AlertCircle className="w-8 h-8" />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-white mb-1">Direct Hardware Feed Offline</h4>
+                  <p className="text-xs text-slate-400">This specific direct feed is currently unreachable. Switch to DoodStream Core or the Official 4K Trailer.</p>
+                </div>
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    onClick={() => handleSelectServer(0)}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 transition-all active:scale-95"
+                  >
+                    Switch to DoodStream Core
+                  </button>
+                  <button
+                    onClick={handleSelectTrailer}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/10 transition-all active:scale-95"
+                  >
+                    Play 4K Trailer
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <video
+                key={directVideoSource}
+                ref={videoRef}
+                src={directVideoSource}
+                playsInline
+                preload="auto"
+                crossOrigin="anonymous"
+                onError={() => {
+                  setNativePlayError(true);
+                  setIsStreamLoading(false);
+                }}
+                onLoadedData={() => {
+                  setIsStreamLoading(false);
+                  setNativePlayError(false);
+                  if (currentTime > 0 && videoRef.current) {
+                    videoRef.current.currentTime = currentTime;
+                  }
+                }}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onTimeUpdate={() => {
+                  if (videoRef.current) {
+                    setCurrentTime(videoRef.current.currentTime);
+                    setDuration(videoRef.current.duration || 7200);
+                  }
+                }}
+                onEnded={() => {
+                  if (nextEpisode) goToNextEpisode();
+                }}
+                className="w-full h-full object-contain cursor-pointer"
+                onClick={toggleNativePlay}
+              />
+            )}
+
+            {/* Centered Click-to-Play Overlay if paused */}
+            {!isPlaying && !nativePlayError && (
+              <div 
+                onClick={toggleNativePlay}
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] cursor-pointer group/overlay"
+              >
+                <div className="w-20 h-20 rounded-full bg-rose-600 group-hover/overlay:bg-rose-500 text-white flex items-center justify-center shadow-2xl shadow-rose-600/50 transition-transform group-hover/overlay:scale-110 active:scale-95 animate-pulse">
+                  <Play className="w-8 h-8 fill-white ml-1" />
+                </div>
+                <span className="text-white font-bold text-sm mt-3 bg-black/60 px-4 py-1 rounded-full border border-white/10">
+                  Click to Play Direct Stream
+                </span>
+              </div>
+            )}
+
+            {/* Native Video Controls Bar */}
+            <div className={`absolute bottom-4 inset-x-4 sm:inset-x-8 z-30 p-3.5 rounded-2xl bg-black/80 backdrop-blur-xl border border-white/10 flex items-center justify-between gap-4 transition-all duration-300 shadow-2xl ${
+              showQuickBar ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
             }`}>
+              
               <div className="flex items-center gap-2 sm:gap-3">
                 <button
-                  onClick={() => {
-                    if (videoRef.current) {
-                      if (isPlaying) {
-                        videoRef.current.pause();
-                        setIsPlaying(false);
-                      } else {
-                        videoRef.current.play();
-                        setIsPlaying(true);
-                      }
-                    }
-                  }}
-                  className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-lg active:scale-95"
+                  onClick={toggleNativePlay}
+                  className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-lg active:scale-95 transition-all"
                   aria-label="Play / Pause"
                 >
-                  {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white" />}
+                  {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white ml-0.5" />}
                 </button>
 
                 <button
@@ -644,7 +614,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                   <RotateCw className="w-4 h-4" />
                 </button>
 
-                <span className="text-xs font-mono-data text-slate-300">
+                <span className="text-xs font-mono text-slate-300">
                   {formatTime(currentTime)} / {formatTime(duration)}
                 </span>
               </div>
@@ -665,7 +635,7 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
                 />
               </div>
 
-              {/* Volume & Switch to Embed mode */}
+              {/* Volume & Switch Stream Source */}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
@@ -681,19 +651,22 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
 
                 <button
                   onClick={() => {
-                    setUseNativePlayer(false);
-                    switchNextServer(0);
+                    setSampleStreamIndex(prev => (prev + 1) % SAMPLE_DIRECT_STREAMS.length);
                   }}
-                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors"
+                  className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold"
+                  title="Switch Direct Source Feed"
                 >
-                  Embed Mode
+                  Feed #{sampleStreamIndex + 1}
                 </button>
               </div>
+
             </div>
           </div>
-        ) : (
-          /* Video Mode 2: Multi-Source High-Speed Embed Player */
-          <div className="relative w-full h-full">
+        )}
+
+        {/* MODE 3: MULTI-SOURCE HIGH-SPEED EMBED PLAYER */}
+        {playerMode === 'embed' && (
+          <div className="relative w-full h-full bg-black">
             <iframe
               key={`${selectedProvider.id}-${media.tmdbId}-${currentSeason}-${currentEpisode}`}
               src={embedUrl}
@@ -704,223 +677,203 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
               referrerPolicy="no-referrer"
               allowFullScreen
             />
-
-            {/* Quick-Action Bar on Bottom: AUTOMATICALLY DISAPPEARS AFTER 3.5s */}
-            <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 p-1.5 rounded-2xl glass-dock shadow-2xl transition-all duration-500 ease-out ${
-              showBottomQuickBar ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
-            }`}>
-              <button
-                onClick={() => setUseNativePlayer(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-all active:scale-95"
-              >
-                <Film className="w-3.5 h-3.5" />
-                <span>Play in Native Player</span>
-              </button>
-
-              <button
-                onClick={() => switchNextServer()}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold transition-colors"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Next Server</span>
-              </button>
-
-              <button
-                onClick={() => setShowBottomQuickBar(false)}
-                className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                title="Dismiss buttons"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
           </div>
         )}
-      </main>
 
-      {/* Stream Server Switcher Modal */}
+        {/* FLOATING BOTTOM QUICK BAR (DISAPPEARS AUTOMATICALLY) */}
+        <div className={`absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 p-1.5 rounded-2xl bg-black/85 backdrop-blur-xl border border-white/15 shadow-[0_0_50px_rgba(0,0,0,0.8)] transition-all duration-300 ${
+          showQuickBar ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
+        }`}>
+          
+          <button
+            onClick={handleSelectTrailer}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 ${
+              playerMode === 'trailer' 
+                ? 'bg-rose-600 text-white shadow-rose-600/40' 
+                : 'bg-white/10 hover:bg-white/20 text-white'
+            }`}
+          >
+            <Clapperboard className="w-3.5 h-3.5" />
+            <span>4K Trailer Mode</span>
+          </button>
+
+          <button
+            onClick={handleNextServer}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold shadow-md transition-all active:scale-95"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Next Server</span>
+          </button>
+
+          <button
+            onClick={handleSelectNative}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 ${
+              playerMode === 'native' 
+                ? 'bg-emerald-600 text-white shadow-emerald-600/40' 
+                : 'bg-white/10 hover:bg-white/20 text-white'
+            }`}
+          >
+            <Film className="w-3.5 h-3.5" />
+            <span>Native Player</span>
+          </button>
+
+        </div>
+
+      </div>
+
+      {/* SERVER SELECTION MODAL */}
       {isServerModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-3xl glass-dropdown p-6 space-y-4 shadow-2xl border border-white/10">
-            <div className="flex items-center justify-between pb-2 border-b border-white/10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in">
+          <div className="relative w-full max-w-lg rounded-3xl bg-[#0e1018] border border-white/15 p-6 space-y-5 shadow-2xl">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <div className="flex items-center gap-2">
                 <Server className="w-5 h-5 text-rose-500" />
-                <h3 className="text-base font-bold text-white">Streaming Servers</h3>
+                <h3 className="text-base font-bold text-white">Select Streaming Engine</h3>
               </div>
               <button
                 onClick={() => setIsServerModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-white/10 text-slate-400 hover:text-white"
+                className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-300">
-              Select a streaming node below to instantly switch video source:
-            </p>
-
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              {/* Native HD Player Option */}
-              <button
-                onClick={() => {
-                  setUseNativePlayer(true);
-                  setIsServerModalOpen(false);
-                }}
-                className={`w-full p-3 rounded-2xl flex items-center justify-between text-left transition-all border ${
-                  useNativePlayer
-                    ? 'bg-emerald-600/20 border-emerald-500 text-white'
-                    : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/5 text-slate-300'
-                }`}
-              >
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-white">🎬 Native Direct HD Player</span>
-                    <span className="text-[10px] font-mono-data bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">
-                      Unblocked
+            {/* Special 4K Trailer option */}
+            <div 
+              onClick={handleSelectTrailer}
+              className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-center justify-between ${
+                playerMode === 'trailer'
+                  ? 'bg-gradient-to-r from-rose-950/60 to-red-950/40 border-rose-500 shadow-lg shadow-rose-950/50'
+                  : 'bg-black/40 border-white/10 hover:border-white/30 hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center">
+                  <Clapperboard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>Official 4K Cinema Trailer</span>
+                    <span className="text-[9px] font-mono bg-red-500/20 text-red-300 px-1.5 py-0.2 rounded border border-red-500/30">
+                      100% PLAYABLE
                     </span>
-                  </div>
-                  <p className="text-xs text-slate-400">Direct High-Speed HTML5 Cinema Video</p>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">Guaranteed instant 4K preview with zero buffer or server error</p>
                 </div>
+              </div>
+              {playerMode === 'trailer' && <Check className="w-4 h-4 text-rose-400" />}
+            </div>
 
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono-data text-emerald-400 font-medium">1080p FHD</span>
-                  {useNativePlayer && <Check className="w-4 h-4 text-emerald-400" />}
+            {/* Native Player Option */}
+            <div 
+              onClick={handleSelectNative}
+              className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-center justify-between ${
+                playerMode === 'native'
+                  ? 'bg-emerald-950/40 border-emerald-500 shadow-lg shadow-emerald-950/50'
+                  : 'bg-black/40 border-white/10 hover:border-white/30 hover:bg-white/5'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center">
+                  <MonitorPlay className="w-5 h-5" />
                 </div>
-              </button>
+                <div>
+                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>Direct HTML5 Native Player</span>
+                    <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded border border-emerald-500/30">
+                      NATIVE MP4
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">Hardware accelerated browser player with custom controls</p>
+                </div>
+              </div>
+              {playerMode === 'native' && <Check className="w-4 h-4 text-emerald-400" />}
+            </div>
 
-              {/* Embed Nodes */}
-              {STREAM_PROVIDERS.map((provider, idx) => (
-                <button
-                  key={provider.id}
-                  onClick={() => {
-                    setProviderIndex(idx);
-                    setUseNativePlayer(provider.type === 'direct');
-                    setIsStreamLoading(true);
-                    setIsServerModalOpen(false);
-                  }}
-                  className={`w-full p-3 rounded-2xl flex items-center justify-between text-left transition-all border ${
-                    !useNativePlayer && selectedProvider.id === provider.id
-                      ? 'bg-rose-600/20 border-rose-500 text-white'
-                      : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/5 text-slate-300'
+            {/* Cloud Embed Nodes */}
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                Multi-Source Cloud Servers
+              </span>
+              {STREAM_PROVIDERS.map((srv, idx) => (
+                <div
+                  key={srv.id}
+                  onClick={() => handleSelectServer(idx)}
+                  className={`p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                    playerMode === 'embed' && providerIndex === idx
+                      ? 'bg-rose-950/40 border-rose-500 text-white shadow-md'
+                      : 'bg-black/30 border-white/10 hover:border-white/20 text-slate-300 hover:text-white'
                   }`}
                 >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white">{provider.name}</span>
-                      {provider.badge && (
-                        <span className="text-[10px] font-mono-data bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded">
-                          {provider.badge}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-400">{provider.serverName}</p>
+                  <div>
+                    <span className="text-xs font-bold block">{srv.name}</span>
+                    <span className="text-[10px] text-slate-400">{srv.serverName} • {srv.quality}</span>
                   </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-mono-data text-emerald-400 font-medium">{provider.quality}</span>
-                    {!useNativePlayer && selectedProvider.id === provider.id && (
-                      <Check className="w-4 h-4 text-rose-400" />
-                    )}
-                  </div>
-                </button>
+                  {playerMode === 'embed' && providerIndex === idx && (
+                    <Check className="w-4 h-4 text-rose-400" />
+                  )}
+                </div>
               ))}
             </div>
+
           </div>
         </div>
       )}
 
-      {/* TV Series Seasons & Episodes Drawer */}
-      {isSeasonDrawerOpen && media.type === 'tv' && media.seasons && (
-        <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 glass-dropdown p-6 shadow-2xl flex flex-col justify-between border-l border-white/10 animate-in slide-in-from-right duration-200">
-          <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+      {/* TV SEASON & EPISODE DRAWER */}
+      {isSeasonDrawerOpen && media.type === 'tv' && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-md h-full bg-[#0b0d14] border-l border-white/10 p-6 flex flex-col space-y-4 shadow-2xl">
+            
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <div className="flex items-center gap-2">
-                <Layers className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-base font-bold text-white">Episodes</h3>
+                <Tv className="w-5 h-5 text-rose-500" />
+                <h3 className="text-base font-bold text-white">Season {currentSeason} Episodes</h3>
               </div>
               <button
                 onClick={() => setIsSeasonDrawerOpen(false)}
-                className="p-1.5 rounded-full hover:bg-white/10 text-slate-400 hover:text-white"
+                className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Season Selector Tabs */}
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-              {media.seasons.map(s => (
-                <button
-                  key={s.seasonNumber}
-                  onClick={() => setCurrentSeason(s.seasonNumber)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-colors ${
-                    currentSeason === s.seasonNumber
-                      ? 'bg-rose-600 text-white'
-                      : 'bg-white/[0.06] text-slate-300 hover:bg-white/[0.12]'
+            {/* Episode List */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {loadingDrawerEpisodes ? (
+                <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Loading episodes...</span>
+                </div>
+              ) : episodesList.map((ep) => (
+                <div
+                  key={ep.id}
+                  onClick={() => {
+                    setCurrentEpisode(ep.episodeNumber);
+                    setIsSeasonDrawerOpen(false);
+                    setIsStreamLoading(true);
+                  }}
+                  className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
+                    currentEpisode === ep.episodeNumber
+                      ? 'bg-rose-950/40 border-rose-500 shadow-md'
+                      : 'bg-black/40 border-white/10 hover:border-white/20'
                   }`}
                 >
-                  {s.name}
-                </button>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-white/10 text-white font-mono font-bold text-xs flex items-center justify-center shrink-0">
+                      E{ep.episodeNumber}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-bold text-white truncate">{ep.name}</h4>
+                      <span className="text-[10px] text-slate-400">{ep.runtime ? `${ep.runtime} min` : 'HD Stream'}</span>
+                    </div>
+                  </div>
+                  {currentEpisode === ep.episodeNumber && <Play className="w-3.5 h-3.5 fill-rose-500 text-rose-500 shrink-0" />}
+                </div>
               ))}
             </div>
 
-            {/* Episodes List */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {loadingDrawerEpisodes ? (
-                <div className="space-y-2 py-2">
-                  {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="p-2.5 rounded-2xl bg-white/[0.04] animate-pulse flex items-center gap-3">
-                      <div className="w-16 h-10 rounded-xl bg-white/10 shrink-0" />
-                      <div className="flex-1 space-y-1.5">
-                        <div className="h-3 bg-white/10 rounded w-2/3" />
-                        <div className="h-2.5 bg-white/5 rounded w-1/3" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : activeSeasonData?.episodes && activeSeasonData.episodes.length > 0 ? (
-                activeSeasonData.episodes.map(ep => (
-                  <button
-                    key={ep.id}
-                    onClick={() => {
-                      setCurrentEpisode(ep.episodeNumber);
-                      setIsSeasonDrawerOpen(false);
-                    }}
-                    className={`w-full p-2.5 rounded-2xl flex items-center gap-3 text-left transition-all ${
-                      currentEpisode === ep.episodeNumber
-                        ? 'bg-rose-600/20 border border-rose-500/50 text-white'
-                        : 'bg-white/[0.03] hover:bg-white/[0.08] text-slate-300'
-                    }`}
-                  >
-                    <div className="w-16 h-10 rounded-xl overflow-hidden bg-slate-800 shrink-0 relative">
-                      <img
-                        src={ep.stillPath || media.backdropPath}
-                        alt={ep.name}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover"
-                      />
-                      {currentEpisode === ep.episodeNumber && (
-                        <div className="absolute inset-0 bg-rose-600/40 flex items-center justify-center">
-                          <Play className="w-4 h-4 fill-white text-white" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono-data text-rose-400 font-bold">
-                          E{ep.episodeNumber}
-                        </span>
-                        <span className="text-[10px] text-slate-400">{ep.runtime || 45}m</span>
-                      </div>
-                      <h4 className="text-xs font-semibold text-white truncate">{ep.name}</h4>
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <div className="py-8 text-center text-xs text-slate-400">
-                  No episodes found for this season.
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}

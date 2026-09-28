@@ -1,42 +1,27 @@
 import { CustomCollection, MediaItem, OfflineDownload, UserProfile, UserReview, WatchHistoryItem } from '../types/movie';
+import { DEFAULT_NETFLIX_AVATAR } from './netflixAvatars';
 
 const STORAGE_KEYS = {
-  PROFILES: 'lumina_user_profiles',
-  ACTIVE_PROFILE: 'lumina_active_profile_id',
-  WATCHLIST: 'lumina_watchlist_',
-  FAVORITES: 'lumina_favorites_',
-  HISTORY: 'lumina_watch_history_',
-  DOWNLOADS: 'lumina_offline_downloads',
-  COLLECTIONS: 'lumina_custom_collections_',
-  REVIEWS: 'lumina_user_reviews'
+  PROFILES: 'nexplay_user_profiles',
+  ACTIVE_PROFILE: 'nexplay_active_profile_id',
+  WATCHLIST: 'nexplay_watchlist_',
+  FAVORITES: 'nexplay_favorites_',
+  HISTORY: 'nexplay_watch_history_',
+  DOWNLOADS: 'nexplay_offline_downloads',
+  COLLECTIONS: 'nexplay_custom_collections_',
+  REVIEWS: 'nexplay_user_reviews',
+  DELETED_MOVIES: 'nexplay_deleted_movie_ids'
 };
 
-// Default starter profiles
+// Default clean guest profile
 export const DEFAULT_PROFILES: UserProfile[] = [
   {
     id: 'user-main',
-    name: 'Alex Mercer',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    name: 'Primary Profile',
+    avatar: DEFAULT_NETFLIX_AVATAR,
     isKids: false,
     themeColor: '#e11d48',
-    joinedDate: '2024-01-15'
-  },
-  {
-    id: 'user-scifi',
-    name: 'Nova / Sci-Fi Fan',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    isKids: false,
-    themeColor: '#4f46e5',
-    joinedDate: '2024-03-10'
-  },
-  {
-    id: 'user-kids',
-    name: 'Kids Club',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-    isKids: true,
-    pin: '1234',
-    themeColor: '#10b981',
-    joinedDate: '2024-05-01'
+    joinedDate: new Date().toISOString().split('T')[0]
   }
 ];
 
@@ -67,13 +52,13 @@ export function setActiveProfileId(id: string): void {
   localStorage.setItem(STORAGE_KEYS.ACTIVE_PROFILE, id);
 }
 
-// Watchlist operations
+// Watchlist operations (Clean: zero mock data)
 export function getWatchlist(profileId: string): number[] {
   try {
     const raw = localStorage.getItem(`${STORAGE_KEYS.WATCHLIST}${profileId}`);
-    return raw ? JSON.parse(raw) : [693134, 94605, 157336]; // Default starter items
+    return raw ? JSON.parse(raw) : [];
   } catch {
-    return [693134, 94605];
+    return [];
   }
 }
 
@@ -89,13 +74,13 @@ export function isInWatchlist(profileId: string, mediaId: number): boolean {
   return getWatchlist(profileId).includes(mediaId);
 }
 
-// Favorites operations
+// Favorites operations (Clean: zero mock data)
 export function getFavorites(profileId: string): number[] {
   try {
     const raw = localStorage.getItem(`${STORAGE_KEYS.FAVORITES}${profileId}`);
-    return raw ? JSON.parse(raw) : [157336, 105248];
+    return raw ? JSON.parse(raw) : [];
   } catch {
-    return [157336];
+    return [];
   }
 }
 
@@ -107,38 +92,11 @@ export function toggleFavorite(profileId: string, mediaId: number): boolean {
   return !exists;
 }
 
-// Continue watching history
+// Continue watching history (Clean: zero mock data)
 export function getWatchHistory(profileId: string): WatchHistoryItem[] {
   try {
     const raw = localStorage.getItem(`${STORAGE_KEYS.HISTORY}${profileId}`);
-    if (raw) return JSON.parse(raw);
-    // Starter mock progress
-    return [
-      {
-        mediaId: 693134,
-        mediaType: 'movie',
-        title: 'Dune: Part Two',
-        posterPath: 'https://image.tmdb.org/t/p/w780/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-        backdropPath: 'https://image.tmdb.org/t/p/original/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-        progress: 68,
-        currentTime: 6780,
-        duration: 9960,
-        lastWatchedAt: Date.now() - 3600 * 1000 * 2
-      },
-      {
-        mediaId: 94605,
-        mediaType: 'tv',
-        title: 'Arcane',
-        posterPath: 'https://image.tmdb.org/t/p/w780/fqldf2t8ztc9aiwn397rWW2vvg1.jpg',
-        backdropPath: 'https://image.tmdb.org/t/p/original/fqldf2t8ztc9aiwn397rWW2vvg1.jpg',
-        season: 1,
-        episode: 3,
-        progress: 45,
-        currentTime: 1200,
-        duration: 2640,
-        lastWatchedAt: Date.now() - 3600 * 1000 * 12
-      }
-    ];
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
@@ -155,25 +113,11 @@ export function clearWatchHistoryItem(profileId: string, mediaId: number): void 
   localStorage.setItem(`${STORAGE_KEYS.HISTORY}${profileId}`, JSON.stringify(current));
 }
 
-// Offline Downloads Manager
+// Offline Downloads Manager (Clean: zero mock downloads)
 export function getOfflineDownloads(): OfflineDownload[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.DOWNLOADS);
-    return raw ? JSON.parse(raw) : [
-      {
-        id: 'dl-dune-2',
-        mediaId: 693134,
-        mediaType: 'movie',
-        title: 'Dune: Part Two',
-        posterPath: 'https://image.tmdb.org/t/p/w780/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-        backdropPath: 'https://image.tmdb.org/t/p/original/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-        sizeMB: 2840,
-        downloadedAt: Date.now() - 86400000,
-        status: 'completed',
-        progress: 100,
-        directStreamUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4'
-      }
-    ];
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
@@ -212,28 +156,11 @@ export function removeDownload(id: string): void {
   saveOfflineDownloads(downloads);
 }
 
-// Custom collections
+// Custom collections (Clean: zero mock data)
 export function getCustomCollections(profileId: string): CustomCollection[] {
   try {
     const raw = localStorage.getItem(`${STORAGE_KEYS.COLLECTIONS}${profileId}`);
-    return raw ? JSON.parse(raw) : [
-      {
-        id: 'col-cyberpunk',
-        title: 'Cyberpunk & Dystopian Night',
-        description: 'Atmospheric neon aesthetics, rogue AI, and high-tech intrigue.',
-        mediaIds: [105248, 335984, 693134],
-        createdAt: Date.now() - 86400000 * 3,
-        updatedAt: Date.now()
-      },
-      {
-        id: 'col-mindbending',
-        title: 'Mind-Bending Sci-Fi Epics',
-        description: 'Reality-questioning masterpieces and cosmic wormhole journeys.',
-        mediaIds: [157336, 27205, 872585],
-        createdAt: Date.now() - 86400000 * 5,
-        updatedAt: Date.now()
-      }
-    ];
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
@@ -243,45 +170,20 @@ export function saveCustomCollections(profileId: string, collections: CustomColl
   localStorage.setItem(`${STORAGE_KEYS.COLLECTIONS}${profileId}`, JSON.stringify(collections));
 }
 
-// User Reviews
-export const DEFAULT_REVIEWS: UserReview[] = [
-  {
-    id: 'rev-1',
-    mediaId: 693134,
-    userId: 'u-1',
-    userName: 'Elena Rostova',
-    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-    rating: 10,
-    comment: 'An absolute cinematic masterpiece. The sound design, visuals, and Denis Villeneuve’s direction are unparalleled on modern screens.',
-    createdAt: Date.now() - 86400000 * 2,
-    likes: 84
-  },
-  {
-    id: 'rev-2',
-    mediaId: 94605,
-    userId: 'u-2',
-    userName: 'Marcus Vance',
-    userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80',
-    rating: 10,
-    comment: 'The animation from Studio Fortiche sets a whole new benchmark. Jinx and Vi’s emotional tragedy is heart-wrenching.',
-    createdAt: Date.now() - 86400000 * 4,
-    likes: 129
-  }
-];
-
+// User Reviews (Clean: zero mock reviews)
 export function getReviewsForMedia(mediaId: number): UserReview[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.REVIEWS);
-    const all: UserReview[] = raw ? JSON.parse(raw) : DEFAULT_REVIEWS;
+    const all: UserReview[] = raw ? JSON.parse(raw) : [];
     return all.filter(r => r.mediaId === mediaId);
   } catch {
-    return DEFAULT_REVIEWS.filter(r => r.mediaId === mediaId);
+    return [];
   }
 }
 
 export function addReview(review: Omit<UserReview, 'id' | 'createdAt' | 'likes'>): UserReview {
   const raw = localStorage.getItem(STORAGE_KEYS.REVIEWS);
-  const all: UserReview[] = raw ? JSON.parse(raw) : DEFAULT_REVIEWS;
+  const all: UserReview[] = raw ? JSON.parse(raw) : [];
   const newRev: UserReview = {
     ...review,
     id: `rev-${Date.now()}`,
@@ -292,12 +194,10 @@ export function addReview(review: Omit<UserReview, 'id' | 'createdAt' | 'likes'>
   return newRev;
 }
 
-// Deleted Movie IDs Tracking (Persistent local blacklist so deleted movies NEVER return)
-const DELETED_MOVIES_KEY = 'nexplay_deleted_movie_ids';
-
+// Deleted Movie IDs Tracking
 export function getLocalDeletedMovieIds(): number[] {
   try {
-    const raw = localStorage.getItem(DELETED_MOVIES_KEY);
+    const raw = localStorage.getItem(STORAGE_KEYS.DELETED_MOVIES);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -309,7 +209,7 @@ export function saveLocalDeletedMovieId(id: number): void {
     const current = getLocalDeletedMovieIds();
     if (!current.includes(id)) {
       current.push(id);
-      localStorage.setItem(DELETED_MOVIES_KEY, JSON.stringify(current));
+      localStorage.setItem(STORAGE_KEYS.DELETED_MOVIES, JSON.stringify(current));
     }
   } catch (e) {
     console.error('Error saving deleted movie ID to localStorage', e);
@@ -319,8 +219,42 @@ export function saveLocalDeletedMovieId(id: number): void {
 export function removeLocalDeletedMovieId(id: number): void {
   try {
     const current = getLocalDeletedMovieIds().filter(i => i !== id);
-    localStorage.setItem(DELETED_MOVIES_KEY, JSON.stringify(current));
+    localStorage.setItem(STORAGE_KEYS.DELETED_MOVIES, JSON.stringify(current));
   } catch (e) {
     console.error('Error removing deleted movie ID from localStorage', e);
+  }
+}
+
+// Cached Catalog storage for instantaneous render
+const CACHED_CATALOG_KEY = 'nexplay_cached_catalog_list';
+
+export function getCachedCatalog(): MediaItem[] {
+  try {
+    const raw = localStorage.getItem(CACHED_CATALOG_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCachedCatalog(items: MediaItem[]): void {
+  try {
+    localStorage.setItem(CACHED_CATALOG_KEY, JSON.stringify(items));
+  } catch (e) {
+    console.error('Error caching catalog locally', e);
+  }
+}
+
+// Complete local purge utility to guarantee pristine state
+export function purgeAllLocalData(): void {
+  try {
+    // Purge old lumina_* and new nexplay_* storage keys
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('lumina_') || key.startsWith('nexplay_')) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch (e) {
+    console.error('Error purging local data', e);
   }
 }

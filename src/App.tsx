@@ -19,13 +19,17 @@ import {
   getWatchHistory as getLocalWatchHistory,
   getLocalDeletedMovieIds,
   saveLocalDeletedMovieId,
-  removeLocalDeletedMovieId
+  removeLocalDeletedMovieId,
+  purgeAllLocalData,
+  getCachedCatalog,
+  saveCachedCatalog
 } from './services/storageService';
 import { 
   auth, 
   db, 
   syncUserProfile, 
   UserProfileData,
+  isSuperAdminEmail,
   getFirestoreWatchlist,
   toggleFirestoreWatchlist,
   getFirestoreFavorites,
@@ -33,9 +37,11 @@ import {
   getFirestoreWatchHistory,
   saveFirestoreWatchHistory,
   getFirestoreCatalog,
+  subscribeToFirestoreCatalog,
   saveFirestoreCatalogItem,
   deleteFirestoreCatalogItem,
   getFirestoreDeletedMovieIds,
+  subscribeToFirestoreDeletedMovieIds,
   recordFirestoreDeletedMovieId,
   restoreFirestoreDeletedMovie
 } from './services/firebase';
@@ -90,9 +96,71 @@ export default function App() {
   const [isAutoFillOpen, setIsAutoFillOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [customCatalog, setCustomCatalog] = useState<MediaItem[]>([]);
+  const [customCatalog, setCustomCatalog] = useState<MediaItem[]>(() => getCachedCatalog());
   const [deletedMovieIds, setDeletedMovieIds] = useState<number[]>(() => getLocalDeletedMovieIds());
   const [downloadToast, setDownloadToast] = useState<string | null>(null);
+
+  // Strict Admin Gate: Only princefredkent@gmail.com
+  const isAdmin = isSuperAdminEmail(currentUser?.email);
+
+  // Universal Route Handlers (/login, /admin)
+  const handleOpenLoginRoute = useCallback(() => {
+    if (window.location.pathname !== '/login') {
+      window.history.pushState(null, '', '/login');
+    }
+    setIsProfileModalOpen(true);
+  }, []);
+
+  const handleCloseLoginModal = useCallback(() => {
+    setIsProfileModalOpen(false);
+    if (window.location.pathname === '/login' || window.location.pathname === '/forgot-password') {
+      window.history.pushState(null, '', '/');
+    }
+  }, []);
+
+  const handleOpenAdminRoute = useCallback(() => {
+    if (!isAdmin) {
+      handleOpenLoginRoute();
+      return;
+    }
+    if (window.location.pathname !== '/admin') {
+      window.history.pushState(null, '', '/admin');
+    }
+    setIsAdminModalOpen(true);
+  }, [isAdmin, handleOpenLoginRoute]);
+
+  const handleCloseAdminModal = useCallback(() => {
+    setIsAdminModalOpen(false);
+    if (window.location.pathname === '/admin') {
+      window.history.pushState(null, '', '/');
+    }
+  }, []);
+
+  // Universal Route Synchronizer (Listens to /login, /admin, browser back/forward)
+  useEffect(() => {
+    const handleUrlRoute = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (path === '/login' || hash === '#login' || path === '/forgot-password' || hash === '#forgot-password') {
+        setIsProfileModalOpen(true);
+      } else if (path === '/admin' || hash === '#admin') {
+        if (currentUser && !isSuperAdminEmail(currentUser.email)) {
+          window.history.pushState(null, '', '/login');
+          setIsProfileModalOpen(true);
+        } else {
+          setIsAdminModalOpen(true);
+        }
+      }
+    };
+
+    handleUrlRoute();
+    window.addEventListener('popstate', handleUrlRoute);
+    window.addEventListener('hashchange', handleUrlRoute);
+    return () => {
+      window.removeEventListener('popstate', handleUrlRoute);
+      window.removeEventListener('hashchange', handleUrlRoute);
+    };
+  }, [currentUser]);
 
   // Smart TV Remote & Keyboard D-Pad Navigation Handler
   useTvRemoteNavigation({
@@ -171,8 +239,27 @@ export default function App() {
 
   // Load Firestore Catalog & Deleted Movies Blacklist on mount
   useEffect(() => {
-    // 1. Sync remote deleted movie IDs
-    getFirestoreDeletedMovieIds().then(remoteDeleted => {
+    // One-time cleanup of legacy demo/mock data
+    try {
+      const isCleaned = localStorage.getItem('nexplay_clean_v2');
+      if (!isCleaned) {
+        Object.keys(localStorage).forEach(k => {
+          if (k.startsWith('lumina_') || k.startsWith('nexplay_watchlist_') || k.startsWith('nexplay_favorites_') || k.startsWith('nexplay_watch_history_') || k === 'nexplay_offline_downloads') {
+            localStorage.removeItem(k);
+          }
+        });
+        localStorage.setItem('nexplay_clean_v2', 'true');
+        setDownloads([]);
+        setWatchHistory([]);
+        setWatchlistIds([]);
+        setFavoriteIds([]);
+      }
+    } catch (e) {
+      console.warn('Local cleanup error', e);
+    }
+
+    // 1. Sync remote deleted movie IDs in real-time
+    const unsubDeleted = subscribeToFirestoreDeletedMovieIds(remoteDeleted => {
       if (remoteDeleted && remoteDeleted.length > 0) {
         setDeletedMovieIds(prev => {
           const merged = Array.from(new Set([...prev, ...remoteDeleted]));
@@ -182,17 +269,24 @@ export default function App() {
       }
     });
 
-    // 2. Load Firestore Catalog
-    getFirestoreCatalog().then(items => {
-      if (items && items.length > 0) {
+    // 2. Subscribe to Firestore Catalog in real-time for both guests & logged in users
+    const unsubCatalog = subscribeToFirestoreCatalog(items => {
+      if (items) {
         setCustomCatalog(items);
+        saveCachedCatalog(items);
       }
     });
+
+    return () => {
+      unsubDeleted();
+      unsubCatalog();
+    };
   }, []);
 
+  // Merged active catalog: New custom movies added by admin are prioritized at the top of feeds!
   const activeCatalog = [
-    ...MASTER_MEDIA_CATALOG, 
-    ...customCatalog.filter(c => !MASTER_MEDIA_CATALOG.some(m => m.id === c.id))
+    ...customCatalog,
+    ...MASTER_MEDIA_CATALOG.filter(m => !customCatalog.some(c => c.id === m.id))
   ].filter(item => !deletedMovieIds.includes(item.id));
 
   // Handlers for Watchlist & Favorites
@@ -315,10 +409,10 @@ export default function App() {
       <NexplaySidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenProfile={() => setIsProfileModalOpen(true)}
+        onOpenProfile={handleOpenLoginRoute}
         onOpenSearch={() => setIsSearchOpen(true)}
-        onOpenAutoFill={() => setIsAutoFillOpen(true)}
-        onOpenAdmin={() => setIsAdminModalOpen(true)}
+        onOpenAutoFill={isAdmin ? () => setIsAutoFillOpen(true) : undefined}
+        onOpenAdmin={isAdmin ? handleOpenAdminRoute : undefined}
         watchlistCount={watchlistIds.length}
         downloadsCount={downloads.length}
         currentUser={currentUser}
@@ -358,10 +452,10 @@ export default function App() {
                 onPlayMedia={handlePlayMedia}
                 onOpenDetails={(m) => setDetailMedia(m)}
                 onOpenNotifications={() => setIsNotificationsOpen(true)}
-                onOpenProfile={() => setIsProfileModalOpen(true)}
+                onOpenProfile={handleOpenLoginRoute}
                 onOpenSearch={() => setIsSearchOpen(true)}
-                onOpenAdmin={() => setIsAdminModalOpen(true)}
-                onOpenAutoFill={() => setIsAutoFillOpen(true)}
+                onOpenAdmin={isAdmin ? handleOpenAdminRoute : undefined}
+                onOpenAutoFill={isAdmin ? () => setIsAutoFillOpen(true) : undefined}
                 onViewAllWatchHistory={() => setActiveTab('watchlist')}
                 watchlistIds={watchlistIds}
                 onToggleWatchlist={handleToggleWatchlist}
@@ -377,9 +471,9 @@ export default function App() {
                 onOpenSettings={() => setIsSearchOpen(true)}
                 currentUser={currentUser}
                 userProfile={userProfile}
-                onOpenProfile={() => setIsProfileModalOpen(true)}
-                onOpenAutoFill={() => setIsAutoFillOpen(true)}
-                onOpenAdmin={() => setIsAdminModalOpen(true)}
+                onOpenProfile={handleOpenLoginRoute}
+                onOpenAutoFill={isAdmin ? () => setIsAutoFillOpen(true) : undefined}
+                onOpenAdmin={isAdmin ? handleOpenAdminRoute : undefined}
               />
 
               <div className="grid grid-cols-12 gap-5 items-start">
@@ -580,25 +674,32 @@ export default function App() {
         />
       )}
 
-      {/* Auth & Profile Settings Modal */}
+      {/* Auth & Profile Settings Modal (Universal Login Route /login) */}
       {isProfileModalOpen && (
         <AuthProfileModal
           isOpen={isProfileModalOpen}
-          onClose={() => setIsProfileModalOpen(false)}
+          onClose={handleCloseLoginModal}
           currentUser={currentUser}
           userProfile={userProfile}
           onProfileUpdated={refreshProfile}
-          onOpenAdmin={() => setIsAdminModalOpen(true)}
-          onOpenAutoFill={() => setIsAutoFillOpen(true)}
+          onOpenAdmin={isAdmin ? handleOpenAdminRoute : undefined}
+          onOpenAutoFill={isAdmin ? () => setIsAutoFillOpen(true) : undefined}
         />
       )}
 
-      {/* Smart Auto-Fill Importer Modal */}
+      {/* Smart Auto-Fill Importer Modal (Admin Protected) */}
       {isAutoFillOpen && (
         <SmartAutoFillModal
           isOpen={isAutoFillOpen}
           onClose={() => setIsAutoFillOpen(false)}
+          currentUserEmail={currentUser?.email || null}
+          onOpenLogin={handleOpenLoginRoute}
           onAddMedia={async (newItem: MediaItem) => {
+            if (!isAdmin) {
+              console.warn('Unauthorized catalog write blocked: Not admin princefredkent@gmail.com');
+              return;
+            }
+
             setIsAutoFillOpen(false);
             // If it was previously in deleted blacklist, restore it
             setDeletedMovieIds(prev => prev.filter(id => id !== newItem.id));
@@ -610,7 +711,11 @@ export default function App() {
             if (!existsInMaster) {
               MASTER_MEDIA_CATALOG.unshift(newItem);
             }
-            setCustomCatalog(prev => [newItem, ...prev.filter(m => m.id !== newItem.id)]);
+            setCustomCatalog(prev => {
+              const next = [newItem, ...prev.filter(m => m.id !== newItem.id)];
+              saveCachedCatalog(next);
+              return next;
+            });
 
             await saveFirestoreCatalogItem(newItem);
 
@@ -628,15 +733,16 @@ export default function App() {
         />
       )}
 
-      {/* Admin Panel Modal */}
+      {/* Admin Panel Modal (Admin Protected) */}
       {isAdminModalOpen && (
         <AdminControlModal
           isOpen={isAdminModalOpen}
-          onClose={() => setIsAdminModalOpen(false)}
+          onClose={handleCloseAdminModal}
           currentUserEmail={currentUser?.email || null}
-          onOpenAutoFill={() => setIsAutoFillOpen(true)}
+          onOpenAutoFill={isAdmin ? () => setIsAutoFillOpen(true) : undefined}
           catalogItems={activeCatalog}
           onRemoveCatalogItem={async (id: number) => {
+            if (!isAdmin) return;
             // 1. Immediately blacklist ID so it NEVER returns
             setDeletedMovieIds(prev => {
               if (prev.includes(id)) return prev;
@@ -659,6 +765,19 @@ export default function App() {
           onToggleFeatureItem={(id: number) => {
             const it = MASTER_MEDIA_CATALOG.find(m => m.id === id);
             if (it) it.isFeatured = !it.isFeatured;
+          }}
+          onPurgeDatabase={async () => {
+            // Delete all custom items in Firestore
+            for (const item of customCatalog) {
+              await deleteFirestoreCatalogItem(item.id);
+            }
+            setCustomCatalog([]);
+            setDeletedMovieIds([]);
+            setWatchHistory([]);
+            setDownloads([]);
+            setWatchlistIds([]);
+            setFavoriteIds([]);
+            purgeAllLocalData();
           }}
         />
       )}
